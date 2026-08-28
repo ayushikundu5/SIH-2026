@@ -104,6 +104,59 @@ the inference path. Every other number here rests on that calibration.
 
 ---
 
+## For teammates — start here
+
+There are two very different levels of setup. Pick the one you need.
+
+### Level 1 — run and demo the model (5 minutes, no dataset)
+
+**You do not need the 64 GB of audio.** The trained model is committed to this
+repo. This is enough to hear it work, demo it, and run it on your own recordings.
+
+```powershell
+git clone https://github.com/ayushikundu5/SIH-2026.git
+cd SIH-2026
+
+# any Python 3.9-3.12; no GPU, no PyTorch
+pip install numpy soundfile soxr onnxruntime sounddevice pyyaml
+
+# listen to the 60-second demo that is already in the repo
+cd results\demo60
+start before.wav
+start after.wav
+```
+
+Then run it on your own audio, or live from your microphone:
+
+```powershell
+python -m src.stream_demo --file yourfile.wav --onnx artifacts\model_simple.onnx
+python -m src.stream_demo --live      # WEAR HEADPHONES or it feeds back
+```
+
+### Level 2 — retrain or re-evaluate (hours, needs the dataset)
+
+Only needed if you are changing the model or regenerating results. See
+[Full setup from scratch](#full-setup-from-scratch) and
+[Reproducing everything](#reproducing-everything).
+
+**Use the same absolute paths as the original machine and nothing needs editing:**
+
+```
+C:\SIH26052_data\.venv     the virtualenv
+C:\SIH26052_data\raw       downloaded corpora
+C:\SIH26052_data\prepared  16 kHz conversions
+C:\SIH26052_data\testset   frozen evaluation set
+```
+
+If you use different paths, edit the four lines that reference them:
+`configs/data.yaml` (3 lines: `raw`, `prepared`, `testset`) and `run.ps1`
+(1 line: `$PY`).
+
+Downloads total **~32 GB** and take several hours. They are resumable — re-run
+the same script if interrupted, and it continues rather than restarting.
+
+---
+
 ## Quick start — test it yourself
 
 The shipped model runs through **ONNX Runtime only**. No GPU, no PyTorch needed.
