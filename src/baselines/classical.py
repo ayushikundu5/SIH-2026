@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..stft import HOP, N_FFT, WIN
+from ..framing import HOP, N_FFT, WIN
 
 _EPS = 1e-10
 

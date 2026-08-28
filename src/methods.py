@@ -10,10 +10,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-import torch
 
-from . import stft as S
 from .baselines.classical import spectral_subtraction, wiener
+
+# PyTorch is imported lazily, inside the neural methods only. `unprocessed` and
+# the classical baselines are pure NumPy, so evaluating them must not require a
+# 2 GB CUDA install - and must keep working on a machine where PyTorch cannot
+# load at all (Windows Smart App Control blocks its unsigned DLLs, for one).
 
 ROOT = Path(__file__).resolve().parents[1]
 _MODEL_CACHE: dict = {}
@@ -23,6 +26,8 @@ _MODEL_CACHE: dict = {}
 
 def load_gtcrn(ckpt: str | Path, device: str = "cpu"):
     """Load GTCRN from a checkpoint. Accepts upstream .tar and our own .pt."""
+    import torch
+
     key = (str(ckpt), device)
     if key in _MODEL_CACHE:
         return _MODEL_CACHE[key]
@@ -36,13 +41,17 @@ def load_gtcrn(ckpt: str | Path, device: str = "cpu"):
     return model
 
 
-@torch.no_grad()
 def enhance_gtcrn(x: np.ndarray, sr: int, ckpt, device: str = "cpu") -> np.ndarray:
+    import torch
+
+    from . import stft as S
+
     model = load_gtcrn(ckpt, device)
-    wav = torch.from_numpy(np.asarray(x, dtype=np.float32)).to(device)
-    spec = S.stft(wav)[None]
-    out = model(spec)[0]
-    enh = S.istft(out, length=len(x))
+    with torch.no_grad():
+        wav = torch.from_numpy(np.asarray(x, dtype=np.float32)).to(device)
+        spec = S.stft(wav)[None]
+        out = model(spec)[0]
+        enh = S.istft(out, length=len(x))
     return enh.cpu().numpy().astype(np.float32)
 
 

@@ -25,8 +25,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src import audio as A                                          # noqa: E402
-from src.export_onnx import CONV_CACHE, INTER_CACHE, TRA_CACHE      # noqa: E402
-from src.stft import HOP, N_FFT, SR, WIN                            # noqa: E402
+from src.framing import (CONV_CACHE, HOP, INTER_CACHE, N_FFT, SR, TRA_CACHE,
+                          WIN)            # noqa: E402
 
 
 class StreamingEnhancer:

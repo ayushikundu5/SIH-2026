@@ -34,10 +34,7 @@ if str(STREAM_DIR) not in sys.path:
 from src import stft as S                      # noqa: E402
 from src.models.gtcrn import GTCRN             # noqa: E402
 
-# Cache shapes are fixed by the architecture (see stream/gtcrn_stream.py).
-CONV_CACHE = (2, 1, 16, 16, 33)
-TRA_CACHE = (2, 3, 1, 1, 16)
-INTER_CACHE = (2, 1, 33, 16)
+from src.framing import CONV_CACHE, INTER_CACHE, TRA_CACHE  # noqa: E402,F401
 
 
 def zero_caches(np_mode: bool = False):

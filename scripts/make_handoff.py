@@ -30,8 +30,8 @@ import torch.nn as nn
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.export_onnx import CONV_CACHE, INTER_CACHE, TRA_CACHE  # noqa: E402
-from src.stft import HOP, N_FFT, SR, WIN                        # noqa: E402
+from src.framing import CONV_CACHE, INTER_CACHE, TRA_CACHE  # noqa: E402
+from src.framing import HOP, N_FFT, SR, WIN                     # noqa: E402
 
 OUT = ROOT / "artifacts"
 

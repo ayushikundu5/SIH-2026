@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src import audio as A                          # noqa: E402
-from src import stft as S                           # noqa: E402
+from src import framing as S                    # noqa: E402
 from src.dataset import load_manifest               # noqa: E402
 from src.mixer import Mixer                         # noqa: E402
 

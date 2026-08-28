@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src import audio as A                      # noqa: E402
-from src.stft import SR                         # noqa: E402
+from src.framing import SR                      # noqa: E402
 
 DUR_S = 60.0
 
@@ -89,7 +89,7 @@ def main() -> None:
 
     # --- enhance through the SHIPPED streaming ONNX --------------------------
     from src.stream_demo import StreamingEnhancer
-    from src.stft import HOP
+    from src.framing import HOP
 
     onnx = ROOT / "artifacts" / "model_simple.onnx"
     if not onnx.exists():
@@ -112,7 +112,7 @@ def main() -> None:
     # this, but SI-SDR and STOI do not: comparing unaligned makes a working
     # model score about -32 dB SI-SDR. Compensate before measuring.
     from src import metrics as M
-    from src.stft import WIN
+    from src.framing import WIN
     lag = WIN - HOP
     out_al = out[lag:]
     ref = clean_ref[:len(out_al)]
