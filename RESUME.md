@@ -21,7 +21,8 @@ optional improvement and two judgement calls.
 | Baseline comparison (classical + pretrained) | Done |
 | Ablation | Done — and it changed the conclusion, see below |
 | External calibration (VoiceBank-DEMAND) | Done — reproduces published baseline exactly |
-| Unit tests | 19, all passing |
+| Unit tests | 19 — all pass with PyTorch; 17 pass + 2 skip without it |
+| Inference without PyTorch | Done — model, demos, baselines and tests all run |
 
 ---
 
@@ -42,11 +43,22 @@ Check with:
 # 0 = off, 1 = ON (enforcing), 2 = evaluation
 ```
 
-**What still works:** ONNX Runtime is unaffected, so the shipped model, both
-demos and all inference run normally. `numpy`, `soundfile`, `pystoi` are fine.
+**What still works** — verified on this machine with torch unloadable:
 
-**What is blocked:** anything importing torch — training, ONNX export, and the
-test suite.
+| | |
+|---|---|
+| Shipped ONNX model on real audio | works, RTF 0.30 |
+| `stream_demo` — file and live mic | works |
+| Classical baselines + `evaluate.py` | works |
+| PESQ / STOI metrics | work |
+| Test suite | 17 pass, 2 skip with a clear reason |
+
+This is deliberate: `src/framing.py` holds the constants with no torch
+dependency, and `methods.py` imports torch lazily. See CLAUDE.md,
+"The inference path must not import PyTorch".
+
+**What is blocked:** training (`src/train.py`), ONNX export (`src/export_onnx.py`),
+and the 2 torch-specific tests.
 
 **To fix:** Windows Security → App & browser control → Smart App Control → Off.
 Note this is **irreversible without a Windows reset** — Microsoft does not allow

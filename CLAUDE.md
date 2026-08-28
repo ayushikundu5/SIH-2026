@@ -134,10 +134,29 @@ performance is honestly reported.
 
 ### STFT constants are not free parameters
 
-`src/stft.py` defines `n_fft=512, hop=256, win=hann(512)**0.5` at 16 kHz. These
-must match `src/models/gtcrn.py` exactly or the pretrained weights are
+`src/framing.py` defines `n_fft=512, hop=256, win=hann(512)**0.5` at 16 kHz.
+These must match `src/models/gtcrn.py` exactly or the pretrained weights are
 meaningless. `src/baselines/classical.py` uses the same framing so the
 comparison is like-for-like.
+
+### The inference path must not import PyTorch
+
+`framing.py` is **NumPy only** and holds the constants, the sample→frame
+mapping, and the streaming cache shapes. `stft.py` adds the torch STFT/iSTFT and
+re-exports everything from `framing`, so older imports keep working.
+
+This split is load-bearing, not tidiness. Running the shipped model used to pull
+in PyTorch transitively (`stream_demo` → `stft` → `torch`), which meant the
+documented "no PyTorch needed" setup failed with ImportError on a clean machine,
+and the whole project stopped working when Windows Smart App Control began
+blocking torch's unsigned DLLs. Anything on the deployment path — `stream_demo`,
+`baselines/classical`, `make_demo`, `make_handoff`, `qa_mixtures` — imports from
+`framing`, and `methods.py` imports torch lazily inside the neural methods only.
+
+**When adding code, check which side of that line it belongs on.** Verified with
+torch unloadable: the ONNX model runs on real audio, the classical baselines
+evaluate, and 17 of 19 tests pass (the 2 torch-specific ones skip with a reason).
+Training and ONNX export legitimately require PyTorch.
 
 ### Method registry (`src/methods.py`)
 
@@ -325,4 +344,12 @@ this check working — it is what makes numbers on our own test set credible.
   fine; drones are not.
 - **Windows Smart App Control** can block PyTorch's unsigned DLLs
   (`WinError 4551` on `c10.dll`). ONNX Runtime is unaffected, so the shipped
-  model and demos still run; training and export do not. See RESUME.md.
+  model, both demos, the classical baselines and 17 of 19 tests still run — see
+  "The inference path must not import PyTorch" above. Training and ONNX export do
+  not. Check with:
+  ```powershell
+  (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy" `
+    -Name VerifiedAndReputablePolicyState).VerifiedAndReputablePolicyState
+  # 0 = off, 1 = ON (enforcing), 2 = evaluation
+  ```
+  Turning it off is irreversible without a Windows reset. See RESUME.md.

@@ -110,8 +110,9 @@ There are two very different levels of setup. Pick the one you need.
 
 ### Level 1 — run and demo the model (5 minutes, no dataset)
 
-**You do not need the 64 GB of audio.** The trained model is committed to this
-repo. This is enough to hear it work, demo it, and run it on your own recordings.
+**You do not need the 64 GB of audio, and you do not need PyTorch.** The trained
+model is committed to this repo and runs on ONNX Runtime. This is enough to hear
+it work, demo it, and run it on your own recordings.
 
 ```powershell
 git clone https://github.com/ayushikundu5/SIH-2026.git
@@ -302,6 +303,16 @@ Or stage by stage:
 ## Testing
 
 ### Unit tests — 19 invariants
+
+Two of them exercise the PyTorch STFT and **skip with a clear reason** when
+PyTorch is unavailable, so the suite still reports on a machine set up for
+inference only:
+
+```
+17 passed, 2 skipped        # PyTorch absent or blocked
+19 passed                   # full environment
+```
+
 
 ```powershell
 $PY = "C:\SIH26052_data\.venv\Scripts\python.exe"
@@ -517,7 +528,8 @@ that admits them.
 configs/        data.yaml (corpora, SNR ranges, burst params), train.yaml
 src/
   audio.py      I/O, resampling, level maths, active-speech VAD
-  stft.py       512/256 sqrt-Hann framing — must match GTCRN exactly
+  framing.py    512/256 constants + sample→frame mapping — NumPy only, no torch
+  stft.py       torch STFT/iSTFT; re-exports framing so old imports still work
   mixer.py      ★ two-layer mixture synthesis + transient mask
   dataset.py    on-the-fly mixing (train), frozen set (val/test)
   losses.py     compressed-spectrum loss + optional transient weighting
