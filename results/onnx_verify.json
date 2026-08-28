@@ -1,0 +1,12 @@
+{
+ "checkpoint": "C:\\Users\\Ayushi Kundu\\OneDrive\\Desktop\\SIH_2026\\checkpoints\\shipped_best.pt",
+ "onnx": "C:\\Users\\Ayushi Kundu\\OneDrive\\Desktop\\SIH_2026\\artifacts\\model_simple.onnx",
+ "max_abs_diff": 3.986060619354248e-07,
+ "rel_to_rms": 6.2675844674231485e-06,
+ "match": true,
+ "frames": 611,
+ "ms_p50": 4.4281999580562115,
+ "ms_p95": 6.040850072167814,
+ "ms_mean": 4.666197539342235,
+ "rtf": 0.2916373462088897
+}
