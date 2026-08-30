@@ -36,7 +36,16 @@ class StreamingEnhancer:
     implementation does, so the numbers and the artefacts are the real ones.
     """
 
-    def __init__(self, onnx_path: Path, threads: int = 1):
+    def __init__(self, onnx_path: Path, threads: int = 1,
+                 floor_db: float | None = None):
+        """`floor_db` caps how deep any bin may be suppressed, e.g. -18.
+
+        None reproduces the model untouched. The cap exists because at negative
+        SNR - which is the deployment case, gunfire louder than the talker - the
+        unconstrained mask cuts speech away along with the noise. Measured word
+        recognition falls as suppression depth rises, so depth is a dial to be
+        set, not maximised.
+        """
         import onnxruntime as ort
         so = ort.SessionOptions()
         so.intra_op_num_threads = threads
@@ -44,6 +53,7 @@ class StreamingEnhancer:
         self.sess = ort.InferenceSession(str(onnx_path), so,
                                          providers=["CPUExecutionProvider"])
         self.window = (np.hanning(WIN) ** 0.5).astype(np.float32)
+        self.floor_lin = None if floor_db is None else 10.0 ** (floor_db / 20.0)
         self.reset()
 
     def reset(self) -> None:
@@ -68,6 +78,15 @@ class StreamingEnhancer:
                  "tra_cache": self.tra, "inter_cache": self.inter})
 
         comp = enh[0, :, 0, 0] + 1j * enh[0, :, 0, 1]
+
+        if self.floor_lin is not None:
+            # Recover the gain the model chose, clamp its depth, reapply to the
+            # NOISY spectrum so the noisy phase is kept - the same construction
+            # every mask-based suppressor uses, and identical to the offline
+            # floor sweep so live and file paths cannot diverge.
+            g = np.abs(comp) / (np.abs(spec) + 1e-10)
+            comp = np.maximum(g, self.floor_lin) * spec
+
         frame = np.fft.irfft(comp, N_FFT)[:WIN].astype(np.float32) * self.window
 
         self.ola = np.concatenate([self.ola[HOP:], np.zeros(HOP, np.float32)])
@@ -78,9 +97,10 @@ class StreamingEnhancer:
         return np.clip(out, -1.0, 1.0)
 
 
-def run_file(onnx: Path, wav_in: Path, out_dir: Path) -> None:
+def run_file(onnx: Path, wav_in: Path, out_dir: Path,
+             floor_db: float | None = None) -> None:
     x = A.load_audio(wav_in)
-    enh = StreamingEnhancer(onnx)
+    enh = StreamingEnhancer(onnx, floor_db=floor_db)
     n_chunks = len(x) // HOP
     y = np.zeros(n_chunks * HOP, dtype=np.float32)
     t0 = time.perf_counter()
@@ -96,9 +116,9 @@ def run_file(onnx: Path, wav_in: Path, out_dir: Path) -> None:
     print(f"wrote {out_dir/'before.wav'} and {out_dir/'after.wav'}")
 
 
-def run_live(onnx: Path, in_dev, out_dev) -> None:
+def run_live(onnx: Path, in_dev, out_dev, floor_db: float | None = None) -> None:
     import sounddevice as sd
-    enh = StreamingEnhancer(onnx)
+    enh = StreamingEnhancer(onnx, floor_db=floor_db)
     q: queue.Queue = queue.Queue()
 
     def callback(indata, outdata, frames, t, status):
@@ -131,6 +151,8 @@ def main() -> None:
     ap.add_argument("--in-device", default=None)
     ap.add_argument("--out-device", default=None)
     ap.add_argument("--out-dir", default="results/demo")
+    ap.add_argument("--floor-db", type=float, default=None,
+                    help="cap suppression depth, e.g. -18. Omit for the raw model.")
     a = ap.parse_args()
 
     if a.list:
@@ -146,9 +168,9 @@ def main() -> None:
         return int(v) if v is not None and str(v).isdigit() else v
 
     if a.live:
-        run_live(onnx, dev(a.in_device), dev(a.out_device))
+        run_live(onnx, dev(a.in_device), dev(a.out_device), a.floor_db)
     elif a.file:
-        run_file(onnx, Path(a.file), ROOT / a.out_dir)
+        run_file(onnx, Path(a.file), ROOT / a.out_dir, a.floor_db)
     else:
         ap.error("pass --file, --live or --list")
 

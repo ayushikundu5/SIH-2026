@@ -26,7 +26,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from .stft import HOP, N_FFT, WIN, window
+from .stft import HOP, N_FFT, SR, WIN, window
 
 _EPS = 1e-12
 
@@ -64,6 +64,25 @@ def _spec_mse(pred, true, mask=None):
     return mag, re, im
 
 
+def _spec_mse_band(pred, true, bins: torch.Tensor):
+    """Compressed-spectrum MSE over a FREQUENCY subset.
+
+    The sibling of `_spec_mse`, which selects frames. This selects bins, and
+    exists for the consonant term: the deficit measured on real recordings is
+    confined to 1-4 kHz, so a frame-based weight cannot express it.
+    """
+    p_mag, p_re, p_im = _compressed(pred[:, bins])
+    t_mag, t_re, t_im = _compressed(true[:, bins])
+    return (torch.mean((p_mag - t_mag) ** 2),
+            torch.mean((p_re - t_re) ** 2),
+            torch.mean((p_im - t_im) ** 2))
+
+
+def _band_bins(lo_hz: float, hi_hz: float, device) -> torch.Tensor:
+    freqs = torch.fft.rfftfreq(N_FFT, 1.0 / SR).to(device)
+    return (freqs >= lo_hz) & (freqs < hi_hz)
+
+
 def _si_snr_from_spec(pred, true):
     """SI-SNR computed in the time domain after iSTFT - anchors the phase, which
     a magnitude-only loss leaves free to drift."""
@@ -80,19 +99,39 @@ def _si_snr_from_spec(pred, true):
 
 
 class TransientWeightedLoss(nn.Module):
-    """GTCRN HybridLoss + a burst-frame term.
+    """GTCRN HybridLoss + a burst-frame term + a consonant-band term.
 
     Set `w_transient=0` to recover the upstream objective exactly, which is how
-    the ablation in the results table is produced.
+    the ablation in the results table is produced. `w_consonant=0` (the default)
+    likewise leaves the objective bit-identical to before that term existed.
+
+    THE CONSONANT TERM. Field recordings showed the shipped model LOSING 2.0 dB
+    of consonant-to-vowel ratio relative to its own input: it is optimised to
+    match a waveform, and nothing in that objective says the words must stay
+    distinguishable. Consonants are brief and 20-30 dB below the vowels, so they
+    are nearly invisible in a mean-squared error and the model spends its
+    capacity on the loud vowels instead. This recomputes the spectral loss over
+    the 1-4 kHz bins that carry consonant identity.
+
+    Note the precedent before trusting it: the transient term above was the same
+    kind of idea - reweight the loss toward the frames that matter - and a paired
+    ablation found it made PESQ, STOI and SI-SDR all SIGNIFICANTLY WORSE while
+    doing nothing for burst SI-SDR. Measure this one the same way.
     """
 
     def __init__(self, w_mag: float = 70.0, w_ri: float = 30.0,
-                 w_sisnr: float = 1.0, w_transient: float = 2.5):
+                 w_sisnr: float = 1.0, w_transient: float = 2.5,
+                 w_consonant: float = 0.0,
+                 cons_lo_hz: float = 1000.0, cons_hi_hz: float = 4000.0):
         super().__init__()
         self.w_mag = w_mag
         self.w_ri = w_ri
         self.w_sisnr = w_sisnr
         self.w_transient = w_transient
+        self.w_consonant = w_consonant
+        self.cons_lo_hz = cons_lo_hz
+        self.cons_hi_hz = cons_hi_hz
+        self._bins: torch.Tensor | None = None
 
     def forward(self, pred_stft: torch.Tensor, true_stft: torch.Tensor,
                 transient_mask: torch.Tensor | None = None):
@@ -102,7 +141,8 @@ class TransientWeightedLoss(nn.Module):
 
         parts = {"mag": mag.detach(), "ri": (re + im).detach(),
                  "sisnr": sisnr.detach(),
-                 "transient": torch.zeros((), device=pred_stft.device)}
+                 "transient": torch.zeros((), device=pred_stft.device),
+                 "consonant": torch.zeros((), device=pred_stft.device)}
 
         total = base
         if (self.w_transient > 0 and transient_mask is not None
@@ -111,6 +151,15 @@ class TransientWeightedLoss(nn.Module):
             t_loss = self.w_ri * (t_re + t_im) + self.w_mag * t_mag
             total = total + self.w_transient * t_loss
             parts["transient"] = t_loss.detach()
+
+        if self.w_consonant > 0:
+            if self._bins is None or self._bins.device != pred_stft.device:
+                self._bins = _band_bins(self.cons_lo_hz, self.cons_hi_hz,
+                                        pred_stft.device)
+            c_mag, c_re, c_im = _spec_mse_band(pred_stft, true_stft, self._bins)
+            c_loss = self.w_ri * (c_re + c_im) + self.w_mag * c_mag
+            total = total + self.w_consonant * c_loss
+            parts["consonant"] = c_loss.detach()
 
         parts["total"] = total.detach()
         return total, parts

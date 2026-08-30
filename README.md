@@ -41,6 +41,43 @@ amplification belongs to the analog path downstream.
 
 ---
 
+## Current status — read this before the results below
+
+**The model suppresses gunfire well and does not yet deliver intelligible speech
+on real recordings.** Both halves of that sentence are measured.
+
+The results table further down is real, and it is measured on a *frozen synthetic
+test set* using PESQ, STOI and SI-SDR — none of which measures whether a listener
+can make out the words. When word recognition was measured directly on real
+recordings made with a real microphone and real gunfire, the picture reversed.
+
+Word recognition, scored by a speech recogniser over 26 known tokens
+(`scripts/asr_score.py`, whisper-medium):
+
+| recording | input SNR | unprocessed | model + floor −18 dB | model, full depth |
+|---|---|---|---|---|
+| take 1 | +8 dB | **85%** | 73% | 12% |
+| take 2 | −12 dB | **50%** | 4% | 4% |
+| take 3 | −5.9 dB | **85%** | 77% | 69% |
+
+Doing nothing wins on all three, and the more the model suppresses the fewer
+words survive. On the same recording the model removes **27.5 dB** of gunfire —
+the suppression is not in doubt; the speech does not survive it.
+
+Two caveats, both real:
+
+- **A recogniser is not an ear.** ASR is far more robust to additive noise than
+  humans and far *less* robust to processing artefacts. Enhancement hurting ASR
+  while helping people is a known effect. What makes this credible anyway is that
+  the person who made the recordings independently reported the same thing.
+- **A scored human listening test has not been run.** The kit is ready at
+  `test-result/listening_test/`. It needs three people who have not seen the
+  script.
+
+`RESUME.md` has the full picture and the prioritised plan.
+
+---
+
 ## Results
 
 Measured on a **frozen 720-clip test set** — held-out speakers, held-out noise
@@ -180,9 +217,18 @@ SI-SDR **6.3 → 13.0 dB**.
 
 ```powershell
 $PY = "C:\SIH26052_data\.venv\Scripts\python.exe"
-& $PY -m src.stream_demo --file path\to\your.wav --onnx artifacts\model_simple.onnx
+
+# current best: low-SNR model with the suppression cap
+& $PY -m src.stream_demo --file path\to\your.wav `
+      --onnx artifacts\model_lowsnr_simple.onnx --floor-db -18
 # writes results\demo\before.wav and results\demo\after.wav
+
+# the original shipped model, for comparison
+& $PY -m src.stream_demo --file path\to\your.wav --onnx artifacts\model_simple.onnx
 ```
+
+See [Testing it live](#testing-it-live-from-your-microphone) for full device
+setup and what to listen for.
 
 ### 3. Live microphone
 
@@ -200,6 +246,183 @@ carried forward — so it is the same code path the hardware team will run.
 ```powershell
 & $PY scripts\make_demo.py           # rebuilds results\demo60\ from held-out data
 ```
+
+---
+
+## Where to hear everything
+
+Every audio file in the repo, what it demonstrates, and how to play it.
+All the `test-result/` clips are **level-matched to −20 dBFS**, so you are
+comparing clarity and not volume.
+
+Play any file with:
+```powershell
+(New-Object Media.SoundPlayer "C:\dev\SIH-2026\<path>").PlaySync()
+```
+or `start <path>` to open it in your default player.
+
+### 1. The showcase demo — 60 s, synthetic, this is the one for a slide deck
+
+`results/demo60/`
+
+| file | what |
+|---|---|
+| `before.wav` | voice + engine noise + 10 gunshots |
+| `after.wav` | the same clip through the shipped streaming model |
+| `reference_clean.wav` | the ground-truth speech, for comparison |
+| `demo_metrics.json` | the measured numbers for this clip |
+
+Gunshots at **20.4, 25.5, 29.9, 32.9, 35.2, 39.6, 44.4, 48.3, 53.4, 56.0 s**.
+Measured: PESQ **1.40 → 2.19**, STOI **0.91 → 0.95**, SI-SDR **6.3 → 13.0 dB**.
+Built from held-out test material and processed through the **shipped ONNX**, one
+16 ms frame at a time — not an offline approximation that happens to sound good.
+
+```powershell
+cd C:\dev\SIH-2026; foreach ($f in @("before","after","reference_clean")) {
+  Write-Host "`n$f" -ForegroundColor Cyan
+  (New-Object Media.SoundPlayer "results\demo60\$f.wav").PlaySync() }
+```
+
+### 2. Real recordings — the honest test
+
+`test-result/voice/` — made with a phone, gunfire from a speaker in the room.
+
+| file | what | input SNR |
+|---|---|---|
+| `voice_dry.wav` | voice only, phone **video** capture | — |
+| `voice_dry3.wav` | voice only, phone **voice-recorder** app | — |
+| `voice_noisy.wav` | take 1, voice + gunfire | +8 dB |
+| `voice_noisy2.wav` | take 2, gunfire much louder | −12 dB |
+| `voice_noisy3.wav` | take 3 | −5.9 dB |
+| `noise_bed3.wav` | 5.6 s of gunfire alone, extracted from take 3 |  |
+
+**Compare `voice_dry.wav` against `voice_dry3.wav`.** Same speaker, same script,
+same phone — one recorded with the camera app, one with the voice recorder. The
+camera app's own noise suppression scooped **19.2 dB out of the 1–2 kHz formant
+region**. This is why the capture chain is documented so heavily in `RESUME.md`.
+
+### 3. The suppression-depth comparison — the central tradeoff
+
+`test-result/floors/` (take 3), `test-result/final_take1/`, `test-result/final_take2/`
+
+| file | suppression | word score (take 3) |
+|---|---|---|
+| `floor_none_unprocessed.wav` | 0.0 dB | 85% |
+| `floor_12dB.wav` | 10.5 dB | — |
+| `floor_18dB.wav` | 15.1 dB | 77% |
+| `floor_24dB.wav` | 19.2 dB | — |
+| `floor_full_model.wav` | 27.5 dB | 69% |
+
+```powershell
+cd C:\dev\SIH-2026; foreach ($f in @(
+ @("unprocessed","floor_none_unprocessed"),
+ @("floor -18 dB","floor_18dB"),
+ @("full model","floor_full_model"))) {
+  Write-Host "`n$($f[0])" -ForegroundColor Cyan
+  (New-Object Media.SoundPlayer "test-result\floors\$($f[1]).wav").PlaySync() }
+```
+
+Listen for whether you can write down the phonetic alphabet, not for whether the
+gunfire is gone — it will be, in all of them.
+
+### 4. Operating envelope — where it breaks
+
+`test-result/envelope2/` — clean speech mixed with real gunfire at known SNRs,
+with real PESQ/STOI against the clean reference. Files named
+`m<muffle>_snr<SNR>_{before,after}.wav`, e.g. `m8_snr5_after.wav`.
+
+```powershell
+cd C:\dev\SIH-2026; foreach ($s in @("15","10","5","0","m5")) {
+  Write-Host "`n=== SNR $s dB ===" -ForegroundColor Cyan
+  (New-Object Media.SoundPlayer "test-result\envelope2\m8_snr${s}_after.wav").PlaySync() }
+```
+
+> **Not every folder below is committed.** The source recordings in
+> `test-result/voice/`, the floor-sweep comparison, the per-take finals and the
+> listening kit are in the repo, because the results table rests on them. The
+> intermediate variants — `envelope/`, `envelope2/`, `clarity/`, `candidates/`,
+> `demo3/`, `demo_noisy2/`, `snr_sweep/`, `repaired/`, `bandwidth_demo/`,
+> `live_check/` — are gitignored (~110 MB) and regenerate from the committed
+> source audio plus the scripts. Re-create any of them with
+> `scripts/floor_sweep.py`, `scripts/robustness_sweep.py` or
+> `scripts/snr_sweep.py`.
+
+### 5. Negative results — kept so nobody rebuilds them
+
+`test-result/clarity/`, `test-result/candidates/`, `test-result/demo3/`
+
+These sound plausible and measure worse. See "Negative results" in `RESUME.md`
+before drawing any conclusion from them.
+
+### 6. The listening-test kit
+
+`test-result/listening_test/` — `TEST_A.wav`, a blank `ANSWER_SHEET.txt`, and
+`KEY_tester_only.txt`. Three listeners who have **not** seen the script, one
+play-through each, no replays. 26 items. This is still the missing measurement.
+
+---
+
+## Testing it live from your microphone
+
+The live path runs the real streaming contract — one 16 ms frame per callback,
+caches carried forward — so it is the same code the hardware team will run.
+
+### Before you start
+
+- **Wear wired headphones for the output.** Through a speaker, the mic hears the
+  processed audio and you get a feedback loop.
+- **Do not select a Bluetooth headset as the INPUT.** In call mode it collapses
+  to narrowband (30 dB down by 1312 Hz) and destroys every consonant before the
+  model sees anything. Use the laptop's built-in mic array or a wired mic.
+- Play gunfire from a **separate speaker**, placed away from the laptop, so the
+  microphone genuinely hears it.
+- Expect **~38 ms of delay** on your own voice. That is the architecture, not a
+  fault — see [Known limitations](#known-limitations).
+
+### List your devices
+
+```powershell
+$PY = "C:\SIH26052_data\.venv\Scripts\python.exe"
+& $PY -m src.stream_demo --list
+```
+
+Note the index of your microphone (input) and your headphones (output).
+
+### Run it
+
+```powershell
+# A - current best: low-SNR model with the suppression cap
+& $PY -m src.stream_demo --live --onnx artifacts\model_lowsnr_simple.onnx `
+      --floor-db -18 --in-device 1 --out-device 4
+
+# B - same model, no cap: maximum suppression, fewest words
+& $PY -m src.stream_demo --live --onnx artifacts\model_lowsnr_simple.onnx `
+      --in-device 1 --out-device 4
+
+# C - the original shipped model, for comparison
+& $PY -m src.stream_demo --live --onnx artifacts\model_simple.onnx `
+      --in-device 1 --out-device 4
+```
+
+Ctrl+C to stop. An input level meter prints as it runs. Substitute your own
+device indices from `--list`.
+
+**What to listen for:** speak the phonetic alphabet — Alpha, Bravo, Charlie… —
+and see whether your own consonants survive. Comparing A against B is the whole
+tradeoff in one test.
+
+### Run it on a file instead
+
+```powershell
+& $PY -m src.stream_demo --file yourfile.wav --onnx artifacts\model_lowsnr_simple.onnx `
+      --floor-db -18 --out-dir results\demo
+# writes results\demo\before.wav and after.wav
+
+# then score the words - no listeners needed
+& $PY scripts\asr_score.py --model medium --inputs results\demo\before.wav results\demo\after.wav
+```
+
+Input must be **16 kHz mono WAV**. Expect `RTF ≈ 0.29`.
 
 ---
 
@@ -309,9 +532,14 @@ PyTorch is unavailable, so the suite still reports on a machine set up for
 inference only:
 
 ```
-17 passed, 2 skipped        # PyTorch absent or blocked
 19 passed                   # full environment
+17 passed, 2 skipped        # PyTorch absent or blocked
 ```
+
+Those two tests were previously **broken rather than skipping** - the module
+bound `S` to `src.framing`, which is NumPy-only and has no `stft`/`istft`, while
+they called `S.stft`. They raised `AttributeError` whenever PyTorch was present.
+Fixed; the suite now genuinely reports `19 passed`.
 
 
 ```powershell
@@ -457,6 +685,10 @@ Everything in `artifacts/`:
 
 - **`model.onnx`** — 390 KB, weights folded inline, verified self-contained by
   loading it from an empty scratch directory
+- **`model_lowsnr_simple.onnx`** — the newer model trained on deployment-matched
+  SNR. 390 KB, streaming fidelity verified at **max abs diff 1.05e-06**. Pair it
+  with `--floor-db -18`; see the status section for why depth is a dial and not
+  something to maximise
 - **`SPEC.md`** — sample rate, chunk size, cache shapes, latency breakdown, opset
 - **`example_inference.py`** — minimal streaming loop
 - **`results.md` / `results.csv`** — the measurements

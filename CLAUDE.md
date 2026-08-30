@@ -21,6 +21,29 @@ Requests to "amplify the voice" belong to the analog path downstream, not here.
 Read **`RESUME.md`** for current state and what to do next. Read **`README.md`**
 for results, setup and the full command reference.
 
+## Status, as of the last session — read before changing anything
+
+The deliverable is built and **it does not yet do its job.** On real recordings
+the model removes gunfire and takes the intelligibility of the speech with it.
+Measured by ASR word recognition (`scripts/asr_score.py`, whisper-medium, 26
+known tokens):
+
+| recording | input SNR | unprocessed | + floor -18 dB | model, full depth |
+|---|---|---|---|---|
+| take 1 | +8 dB | **85%** | 73% | 12% |
+| take 2 | -12 dB | **50%** | 4% | 4% |
+| take 3 | -5.9 dB | **85%** | 77% | 69% |
+
+Doing nothing wins on all three; the more the model suppresses, the fewer words
+survive. The frozen test set does not show this because it measures PESQ/STOI
+against a clean reference on synthetic mixtures at POSITIVE SNR - none of which
+is a measure of whether a listener can make out the words.
+
+**Consequence for anyone working here: a change is not an improvement until it
+raises the ASR word score.** PESQ, STOI, SI-SDR, consonant-to-vowel ratio and
+band-energy share have each, in this project, moved the right way while word
+recognition moved the wrong way.
+
 ## Commands
 
 The interpreter is **not** on PATH and lives outside the project directory:
@@ -44,6 +67,25 @@ Python 3.12, not the system 3.14 — PyTorch ships CPU-only wheels for 3.14, so
 
 bash scripts/auto_pipeline.sh   # unattended chain, resumable, skips done work
 ```
+
+### Measuring intelligibility - do this before claiming any improvement
+
+```powershell
+# Word recognition, with a recogniser standing in for a listener. USE medium for
+# anything conclusive: whisper-small is too weak on this audio and fails
+# unpredictably in ways that look like results.
+& $PY scriptssr_score.py --model medium --inputs a.wav b.wav
+& $PY scriptssr_score.py --model medium --repeats 3 --inputs a.wav  # stability
+& $PY scriptssr_score.py --model medium --show-transcript --inputs a.wav
+
+# Suppression depth vs word survival - the tradeoff curve. Optimise the PAIR,
+# never suppression alone; that is exactly how this went wrong.
+& $PY scriptsloor_sweep.py --input noisy.wav --ckpt checkpoints\lowsnr_best.pt `
+      --out-dir test-resultloors
+```
+
+A row flagged `DECODER GLITCH` is **not a measurement** - discard it, never
+average it in. See "Measurement traps" below.
 
 Tests:
 ```powershell
@@ -155,7 +197,7 @@ blocking torch's unsigned DLLs. Anything on the deployment path — `stream_demo
 
 **When adding code, check which side of that line it belongs on.** Verified with
 torch unloadable: the ONNX model runs on real audio, the classical baselines
-evaluate, and 17 of 19 tests pass (the 2 torch-specific ones skip with a reason).
+evaluate, and the NumPy invariants pass (the 2 torch-specific tests skip).
 Training and ONNX export legitimately require PyTorch.
 
 ### Method registry (`src/methods.py`)
@@ -267,10 +309,117 @@ plausible.
     proceed. It is clearly labelled and produces no metrics. Everything else must
     be measured; no hardcoded numbers anywhere in results.
 
+
+### The suppression floor is a first-class control (`--floor-db`)
+
+`StreamingEnhancer` accepts `floor_db`, which caps how deep any bin may be cut:
+
+    G_final = max(G_model, 10 ** (floor_db / 20))
+
+`None` reproduces the model untouched. The floor exists because **suppression
+depth is a dial to be set, not maximised**. At negative SNR - the deployment
+case - the unconstrained mask cuts speech away along with the noise, and measured
+word recognition falls monotonically as depth rises. On take 3:
+
+| setting | gunfire suppressed | word score |
+|---|---|---|
+| unprocessed | 0.0 dB | 85% |
+| floor -18 dB | 15.1 dB | 77% |
+| full model | 27.5 dB | 69% |
+
+The live path and the offline `floor_sweep.py` use the identical construction -
+recover the model's implied gain, clamp it, reapply to the NOISY spectrum so the
+noisy phase is kept - so the two cannot silently diverge.
+
+## Measurement traps - these produce confident wrong numbers
+
+Additional to the silent-failure list above, and all learned the hard way in one
+session. Every one of them produced a number that looked like a result.
+
+15. **Whisper's temperature fallback is non-deterministic.** Left at its default
+    tuple, a decode that trips an internal quality check is silently retried with
+    SAMPLING. The same unchanged file scored **69% and then 23%**. `asr_score.py`
+    passes `temperature=0.0` as a scalar to disable it. Sanity-check anything
+    important with `--repeats 3`.
+
+16. **Whisper drops or loops on hard audio, and both score ~4%.** Two distinct
+    failures observed on perfectly usable audio: a repetition loop
+    (`"...A.M.A.M.A.M..."` for the rest of the clip), and silently skipping a
+    segment - one file transcribed parts 1 and 4 correctly and omitted the
+    alphabet and the digits entirely, which is exactly the scored material.
+    `looks_degenerate()` flags these. **A flagged row is not a measurement.**
+
+17. **Chunked decoding is not a free fix.** It contains repetition loops but
+    costs Whisper its context and destabilises other files - one file's
+    UNPROCESSED audio went from 69% to 0%. `--chunk` is opt-in; whole-file with
+    `--model medium` is the reliable route. Degenerate chunks are FLAGGED, never
+    dropped: dropping cannot raise a score (garbage matches no target) but does
+    discard the real words the decoder did get.
+
+18. **STOI against a degraded reference is not intelligibility.** Scoring output
+    against the speaker's own muffled recording returned 0.84 and meant only
+    "faithfully muffled". A reference metric is only as meaningful as its
+    reference.
+
+19. **The training SNR range must cover deployment, and it did not.**
+    `configs/data.yaml` sets `background.snr_db: [0, 20]` - the steady background
+    is ALWAYS quieter than the voice, so the model never saw the case the product
+    exists for. That range was chosen for a sound reason (the frozen TEST SET has
+    to discriminate; at [-5, 15] it put 63% of clips on the PESQ floor) and then
+    applied to TRAINING, where the requirement is the opposite. Test sets need to
+    discriminate; training sets need to match reality.
+    `configs/data_lowsnr.yaml` uses `[-12, 12]`. **Verify by rendering mixtures,
+    never by reading the config** - realised median SNR is +5.3 dB for
+    `data.yaml` and -3.8 dB for `data_lowsnr.yaml`.
+
+20. **The capture chain silently destroys what no model can recover.** A
+    Bluetooth headset mic in call mode is 30 dB down by **1312 Hz** against
+    4406 Hz for reference speech - every consonant cue simply never recorded.
+    Phone VIDEO capture applies its own noise suppression and AGC and scoops the
+    formant region; switching to a plain voice-recorder app recovered **+19.2 dB
+    at 1-2 kHz**. Measure any new recording before building a test on it.
+
 ## Findings from the build
 
 Recorded because they are results, not anecdotes, and because several contradict
 what the roadmap assumed.
+
+### Suppression and intelligibility are in direct tension
+
+The single most important result in the project, and it was invisible until word
+recognition was measured directly. Across three real recordings, word score falls
+monotonically as suppression depth rises, and **doing nothing wins on all three**
+(see the status table at the top of this file).
+
+The gunfire suppression is genuine - 27.5 dB measured on take 3, against +0.19 dB
+for a Wiener filter on the frozen set. The speech does not survive it. Both are
+true simultaneously, and any future work has to hold both numbers in view.
+
+### Training on the wrong SNR regime was a root cause
+
+`background.snr_db: [0, 20]` meant the model never trained on the case the
+product exists for. Retraining on `[-12, 12]` produced `checkpoints/lowsnr_best.pt`,
+which is substantially better on real audio at the same suppression depth. That
+run changed the SNR range AND enabled the consonant loss term simultaneously, so
+**attribution between the two is unknown** - `--w-consonant 0.0` on the same
+config settles it and has not been run.
+
+Training early-stopped at epoch 17 with best val PESQ at **epoch 5**, then flat.
+The recipe, not the training length, is the limit - and `checkpoint.monitor:
+val_pesq` is selecting on a metric that does not track word recognition.
+
+### Restoring the consonant-to-vowel ratio does not restore intelligibility
+
+Consonants are 20-30 dB below the vowels and are what distinguishes one word from
+another, so the consonant-to-vowel ratio looks like the right target. It is not
+sufficient. Measured on real audio: clean speech sits at -10.68 dB, the speaker's
+dry recording at -16.07 dB, the model output at -18.07 dB. A tilt-ranked
+consonant boost restores CVR to -10.9 dB - matching clean speech exactly - and
+**word score still falls** (58% -> 42%).
+
+Multiband upward compression, the textbook move, is worse: it lifts every quiet
+frame, and most quiet frames are pauses and vowel tails rather than consonants
+(CVR -19.65 -> -22.92 dB). Built, measured, removed.
 
 ### The transient-weighted loss does not work
 
@@ -343,10 +492,14 @@ this check working — it is what makes numbers on our own test set credible.
 - **Drone/quadcopter audio is poorly covered** by open corpora. Helicopter is
   fine; drones are not.
 - **Windows Smart App Control** can block PyTorch's unsigned DLLs
-  (`WinError 4551` on `c10.dll`). ONNX Runtime is unaffected, so the shipped
-  model, both demos, the classical baselines and 17 of 19 tests still run — see
-  "The inference path must not import PyTorch" above. Training and ONNX export do
-  not. Check with:
+  (`WinError 4551` on `c10.dll`). **Currently NOT blocking on this machine** —
+  torch 2.13.0+cu126 loads and trains with GPU even while the policy still
+  reports `1` (enforcing), so treat older notes to the contrary as stale. The
+  torch-free inference split remains correct and worth keeping. Note also the
+  suite is `19 passed`, not "17 pass + 2 skip": those two tests were BROKEN, not
+  skipping — `tests/test_core.py` bound `S` to `src.framing` (NumPy-only, no
+  stft/istft) while two tests called `S.stft`, so they errored instead of
+  skipping. Fixed. Check the policy with:
   ```powershell
   (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy" `
     -Name VerifiedAndReputablePolicyState).VerifiedAndReputablePolicyState

@@ -32,6 +32,17 @@ sys.path.insert(0, str(ROOT))
 from src import audio as A          # noqa: E402
 from src import metrics as M        # noqa: E402
 from src import framing as S        # noqa: E402
+
+# `framing` is the NumPy-only half and deliberately has no stft/istft - importing
+# it here is what lets the rest of this file run on a machine where torch cannot
+# load. The two tests that genuinely exercise the torch STFT need the other half,
+# so it is imported separately and only when torch is actually available.
+# Binding both names to `framing` made those two ERROR with an AttributeError
+# instead of skipping, which is how this went unnoticed.
+if HAS_TORCH:
+    from src import stft as ST      # noqa: E402
+else:
+    ST = None
 from src.baselines.classical import _analyse, _synthesise, spectral_subtraction, wiener  # noqa: E402
 from src.mixer import Mixer         # noqa: E402
 
@@ -61,14 +72,14 @@ def _speech(n=SR * 6, seed=0):
 @needs_torch
 def test_stft_roundtrip_is_identity():
     x = torch.from_numpy(_speech(SR * 2))
-    y = S.istft(S.stft(x), length=len(x))
+    y = ST.istft(ST.stft(x), length=len(x))
     assert torch.allclose(x, y, atol=1e-5), f"max err {(x-y).abs().max():.2e}"
 
 
 @needs_torch
 def test_n_frames_matches_torch():
     for n in (SR, SR * 2, 64000, 12345):
-        got = S.stft(torch.zeros(n)).shape[-2]
+        got = ST.stft(torch.zeros(n)).shape[-2]
         assert S.n_frames(n) == got, f"n={n}: predicted {S.n_frames(n)}, actual {got}"
 
 

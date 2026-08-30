@@ -27,3 +27,22 @@ venv/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Derived audio from test-result/ - regenerable from the committed source
+# recordings in test-result/voice/ plus the scripts. ~110 MB of intermediate
+# variants; keeping them would bloat the repo for no reproducibility gain.
+# The SOURCE recordings, the floor-sweep comparison, the per-take finals and the
+# listening kit ARE committed, because they are what the results table rests on.
+test-result/envelope/
+test-result/envelope2/
+test-result/clarity/
+test-result/candidates/
+test-result/demo3/
+test-result/demo_noisy2/
+test-result/snr_sweep/
+test-result/repaired/
+test-result/bandwidth_demo/
+test-result/live_check/
+test-result/voice/enhanced/
+test-result/voice/enhanced2/
+test-result/voice/enhanced3/

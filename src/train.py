@@ -88,6 +88,9 @@ def main() -> None:
     ap.add_argument("--data-config", default="configs/data.yaml")
     ap.add_argument("--w-transient", type=float, default=None,
                     help="override loss.w_transient (0.0 = upstream objective)")
+    ap.add_argument("--w-consonant", type=float, default=None,
+                    help="override loss.w_consonant (0.0 = off). Weights the "
+                         "1-4 kHz bins that carry consonant identity.")
     ap.add_argument("--epochs", type=int, default=None)
     ap.add_argument("--epoch-size", type=int, default=None,
                     help="override mixtures per epoch (small values smoke-test "
@@ -103,6 +106,8 @@ def main() -> None:
         dcfg = yaml.safe_load(f)
     if a.w_transient is not None:
         cfg["loss"]["w_transient"] = a.w_transient
+    if a.w_consonant is not None:
+        cfg["loss"]["w_consonant"] = a.w_consonant
     if a.epochs is not None:
         cfg["optim"]["epochs"] = a.epochs
     if a.epoch_size is not None:
@@ -139,7 +144,8 @@ def main() -> None:
     print(f"GTCRN parameters: {n_par:,}   device: {device}")
 
     loss_fn = TransientWeightedLoss(**cfg["loss"])
-    print(f"loss: transient weight = {cfg['loss']['w_transient']}")
+    print(f"loss: transient weight = {cfg['loss']['w_transient']}, "
+          f"consonant weight = {cfg['loss'].get('w_consonant', 0.0)}")
 
     opt = torch.optim.AdamW(model.parameters(), lr=float(cfg["optim"]["lr"]),
                             weight_decay=float(cfg["optim"]["weight_decay"]),
