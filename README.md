@@ -41,6 +41,103 @@ amplification belongs to the analog path downstream.
 
 ---
 
+## For teammates: test this in 10 minutes and send feedback
+
+You need **no dataset, no GPU and no PyTorch.** The models are in the repo and
+run on ONNX Runtime.
+
+### Install
+
+```powershell
+git clone https://github.com/ayushikundu5/SIH-2026.git
+cd SIH-2026
+pip install numpy soundfile soxr onnxruntime sounddevice
+```
+
+That is everything needed for steps 1–3 below. (PyTorch is only for retraining;
+`faster-whisper jiwer` only for the automated word-scoring in step 4.)
+
+### 1. Hear the showcase demo — 2 min
+
+```powershell
+(New-Object Media.SoundPlayer "results\demo60\before.wav").PlaySync()
+(New-Object Media.SoundPlayer "results\demo60\after.wav").PlaySync()
+```
+
+Voice + engine + 10 gunshots, then the same clip cleaned. This is synthetic and
+it is the model at its best.
+
+### 2. Hear the honest test — 3 min, THIS is what we need judged
+
+Real recording, real microphone, gunfire from a speaker in the room. All three
+are level-matched, so judge **clarity, not loudness**:
+
+```powershell
+foreach ($f in @(
+ @("UNPROCESSED - raw microphone","floor_none_unprocessed"),
+ @("MODEL, capped at -18 dB","floor_18dB"),
+ @("MODEL, full suppression","floor_full_model"))) {
+  Write-Host "`n$($f[0])" -ForegroundColor Cyan
+  (New-Object Media.SoundPlayer "test-result\floors\$($f[1]).wav").PlaySync() }
+```
+
+The speaker reads the phonetic alphabet (Alpha, Bravo, Charlie…), digits 1–9 and
+0, and a grid reference "four seven two nine".
+
+**Write down what you can make out in each.** That is the feedback that matters.
+Our automated scoring says the unprocessed version is the most intelligible and
+the fully-suppressed version the least — we need human ears to confirm or refute
+that, because a speech recogniser is not an ear.
+
+### 3. Test it live on your own voice — 5 min
+
+**Wear wired headphones.** Through speakers the mic hears the output and howls.
+**Do not pick a Bluetooth headset as the input** — in call mode it destroys every
+consonant before the model sees anything.
+
+```powershell
+python -m src.stream_demo --list     # note your mic and headphone indices
+python -m src.stream_demo --live --onnx artifacts\model_lowsnr_simple.onnx `
+       --floor-db -18 --in-device 1 --out-device 4
+```
+
+Speak the phonetic alphabet. Play gunfire from your phone's speaker nearby. Then
+run it again **without** `--floor-db -18` and compare. Ctrl+C to stop.
+
+You will hear ~38 ms of delay on your own voice. That is the architecture, not a
+bug.
+
+### 4. Optional — score it automatically
+
+```powershell
+pip install faster-whisper jiwer
+python scripts\asr_score.py --model medium --inputs test-result\floors\floor_18dB.wav
+```
+
+First run downloads ~1.5 GB. Anything flagged `DECODER GLITCH` is not a
+measurement — discard that row.
+
+### What feedback is useful
+
+1. **Which of the three clips in step 2 let you make out the most words?** Rank
+   them. This is the single most valuable thing you can tell us.
+2. Roughly how many of the 12 phonetic words did you get in each?
+3. On the live test — is your own voice clearer with or without `--floor-db`?
+4. Anything that failed to run, with the exact error.
+
+There is also a formal scored test kit at `test-result/listening_test/` — an
+answer sheet, a key, and scoring bands — if you have 15 minutes and someone who
+has **not** seen the script.
+
+### Known state, so you are not surprised
+
+The model removes gunfire well (27.5 dB measured) and currently **costs
+intelligibility** on real recordings. We are not asking you to confirm that it
+works; we are asking you to tell us honestly how bad it is. See the status
+section below and `RESUME.md`.
+
+---
+
 ## Current status — read this before the results below
 
 **The model suppresses gunfire well and does not yet deliver intelligible speech

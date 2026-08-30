@@ -144,7 +144,7 @@ kept (with warnings in their docstrings) because the measurements are the result
 
 | what | verdict |
 |---|---|
-| `scripts/post_enhance.py` | **Delete it.** Built on the belief the model was over-suppressing speech that was present. On the recording it was written for, the speech above 1 kHz genuinely was not there — it re-admitted noise, not voice. Premise disproved. |
+| `scripts/post_enhance.py` | **Deleted.** Built on the belief the model was over-suppressing speech that was present. On the recording it was written for, the speech above 1 kHz genuinely was not there — it re-admitted noise, not voice. Premise disproved; do not rebuild a mask-floor post-processor without first checking the speech is actually in the band. |
 | `scripts/voice_eq.py` — presence EQ toward a reference spectrum | Sounds better, measures worse. Costs 1.6 dB of consonant-to-vowel ratio; word score 58% → 42%. |
 | `scripts/intelligibility.py` — consonant boost | Restores CVR to clean-speech parity (−16.8 → −10.9 dB) and still lowers word score. CVR is not intelligibility. |
 | Multiband upward compression | The textbook move, and wrong here. Lifts every quiet frame, and most quiet frames are pauses and vowel tails rather than consonants: CVR −19.65 → −22.92 dB. Removed from `intelligibility.py`; do not reintroduce without measuring CVR. |

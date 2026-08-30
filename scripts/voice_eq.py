@@ -8,10 +8,10 @@ muffled before anything is done to it. The model then removes a further 2.9 to
 imbalance in bands that DO contain speech, which is why correcting them is sound
 where re-opening empty bands was not.
 
-Read that distinction carefully before reusing this. `post_enhance.py` failed on
-an earlier recording precisely because it lifted bands that held only noise. The
-test is whether the speech energy is present-but-quiet (fix it here) or absent
-(nothing to fix). Check the SNR in the target band first.
+Read that distinction carefully before reusing this. A sibling script (since
+deleted) failed on an earlier recording precisely because it lifted bands that
+held only noise. The test is whether the speech energy is present-but-quiet (fix
+it here) or absent (nothing to fix). Check the SNR in the target band first.
 
 NOTE ON STOI. Correcting toward normal speech will LOWER STOI measured against
 the untouched recording, because STOI scores fidelity to that reference - and
