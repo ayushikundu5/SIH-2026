@@ -3,8 +3,15 @@
 **Smart India Hackathon 2026 — Problem Statement 26052 — AI/ML workstream**
 
 A streaming speech-enhancement model that strips gunfire, artillery, rotor and
-engine noise off a soldier's outgoing microphone feed. 48,245 parameters, small
-enough for an embedded chip, fast enough to run live.
+engine noise off a soldier's outgoing microphone feed. 103,381 parameters, small
+enough for an embedded chip, fast enough to run live on one CPU thread.
+
+**Current best model: `artifacts/model_combat32_simple.onnx`** (`combat32`,
+23 Sep 2026) — trained on synthetic defence mixtures *and* on real battlefield
+audio, and the best of every model here on all three test sets we own. The
+earlier 48,245-parameter model is kept as `artifacts/model.onnx`; see
+[Model lineup](#model-lineup) for which file is which and why the deliverable
+has not been swapped yet.
 
 ---
 
@@ -24,9 +31,11 @@ adapts. We measured exactly that failure:
 | Wiener filter | **+0.19 dB** — essentially nothing |
 | Spectral subtraction | **+0.11 dB** — essentially nothing |
 | GTCRN, off-the-shelf | +5.84 dB |
-| **This project** | **+7.16 dB** |
+| This project, 48K-param model | +7.16 dB |
+| **This project, `combat32`** | **+8.39 dB** (artillery: +8.78 dB) |
 
-Roughly **80% of gunshot noise energy removed, versus ~4% for classical filters.**
+Roughly **86% of gunshot noise energy removed inside the bursts, versus ~4% for
+classical filters.**
 
 ### Scope boundary
 
@@ -144,7 +153,42 @@ section below and `RESUME.md`.
 
 ## Current status — read this before the results below
 
-**The model suppresses gunfire well and does not yet deliver intelligible speech
+**Where the three problem-statement targets stand** (`combat32`, frozen 720-clip
+defence test set, 23 Sep 2026):
+
+| Target | Required | Unprocessed | `combat32` | |
+|---|---|---|---|---|
+| STOI (intelligibility) | > 0.85 | 0.801 | **0.876** | ✅ passes, and passes in all six noise categories |
+| PESQ (wideband quality) | > 2.5 | 1.319 | **2.106** | ❌ 0.39 short |
+| Output SNR | > 15 dB | 4.41 dB | **11.72 dB** | ❌ 3.3 dB short |
+| Real-time factor | < 0.5 | — | **0.476** | ✅ passes on one CPU thread |
+| Latency | < 32 ms (our roadmap) | — | 40.99 ms | ❌ 32 ms is unavoidable at this framing |
+
+All three targets pass together on clips that start at **≥ 10 dB input SNR**
+(PESQ 2.83, STOI 0.96, output SNR 17.4 dB) and on the standard VoiceBank-DEMAND
+benchmark's SNR (17.5 dB). They do not pass as a whole-set average on our own
+deliberately hard defence set, where gunfire routinely peaks above the speaker.
+
+**Three caveats that belong next to those numbers:**
+
+**1. Every run before 22 Sep trained on the same clips over and over.** Persistent
+DataLoader workers never received `set_epoch`, so each epoch regenerated an
+identical mixture set (CLAUDE.md invariant 14a). Fixed, and pinned by
+`tests/test_train_loader.py`. Earlier models are therefore *under-trained rather
+than mis-measured* — and the old conclusion "the model has hit a capacity
+ceiling" is confounded, because a model memorising 20k fixed mixtures also goes
+flat.
+
+**2. `combat32` changed two things at once** — it added real combat audio *and*
+ran with that fix — so how much each contributed is unknown.
+
+**3. The intelligibility warning below has NOT been re-tested on the new
+models.** It was measured on the 48K-param model, and nothing about `combat32`
+answers it yet.
+
+### The intelligibility warning (measured on the older 48K model)
+
+**That model suppressed gunfire well and did not deliver intelligible speech
 on real recordings.** Both halves of that sentence are measured.
 
 The results table further down is real, and it is measured on a *frozen synthetic
@@ -184,11 +228,49 @@ Two caveats, both real:
 Measured on a **frozen 720-clip test set** — held-out speakers, held-out noise
 recordings, held-out rooms — plus the standard VoiceBank-DEMAND benchmark.
 
-### Per noise category (PESQ, whole clip)
+### The three test sets, side by side
+
+Each model was run over all three with the identical evaluator
+(`src/evaluate.py`, reference `pesq` and `pystoi` implementations), through the
+same streaming ONNX path the hardware team gets. PESQ-WB / STOI / output SNR:
+
+| Model | Frozen defence set (720) | Real combat audio (150) | VoiceBank-DEMAND (824) |
+|---|---|---|---|
+| Unprocessed | 1.319 / 0.801 / 4.41 | 1.298 / 0.783 / 5.72 | 1.968 / 0.921 / 8.45 |
+| 48K model (`model.onnx`) | 1.931 / 0.860 / 10.79 | 1.858 / 0.850 / 11.46 | 2.387 / 0.921 / 16.34 |
+| `wide32` (synthetic only) | 2.057 / 0.873 / 11.44 | 1.879 / 0.860 / 11.94 | 2.111 / 0.903 / 15.91 |
+| **`combat32`** | **2.106 / 0.876 / 11.72** | **1.977 / 0.865 / 12.15** | **2.334 / 0.911 / 17.52** |
+
+`combat32` wins on all three, and the margins are not noise: against `wide32`
+it is better on **78%** of defence clips (PESQ +0.050), **81%** of real-combat
+clips (+0.098) and **73%** of benchmark clips (+0.223), every comparison paired
+per clip with p < 1e-10.
+
+The **real combat set** is 150 clips of held-out speakers mixed with battlefield
+audio taken from 21 videos that appear nowhere in training — the closest thing
+here to a field test with a ground truth.
+
+`wide32` shows the cost of narrow training: better than the 48K model on defence
+noise but **worse than doing nothing** on benchmark intelligibility (STOI 0.903
+against 0.921). Adding real combat audio repaired most of that (0.911) while
+improving the defence numbers, which is the main argument for the mixed diet.
+
+### Per noise category (`combat32`, frozen defence set)
+
+| | Gunshot | Artillery | Rotor | Engine | Siren | Babble |
+|---|---|---|---|---|---|---|
+| PESQ-WB | 2.092 | 1.856 | 2.173 | 2.269 | 2.251 | 1.996 |
+| STOI | 0.871 ✅ | 0.853 ✅ | 0.890 ✅ | 0.889 ✅ | 0.905 ✅ | 0.851 ✅ |
+| Output SNR (dB) | 11.51 | 10.29 | 12.18 | 12.39 | 13.00 | 10.98 |
+
+STOI clears 0.85 in **every** category, including the two hardest (artillery and
+babble). PESQ and output SNR clear their targets in none.
+
+### Earlier per-category comparison (48K model, kept for reference)
 
 | Method | Gunshot | Artillery | Rotor | Engine | Siren | Babble | Overall |
 |---|---|---|---|---|---|---|---|
-| **Ours (shipped)** | **1.901** | **1.722** | **1.995** | **2.066** | **2.080** | **1.833** | **1.933** |
+| 48K model | 1.901 | 1.722 | 1.995 | 2.066 | 2.080 | 1.833 | 1.933 |
 | GTCRN pretrained (DNS3) | 1.793 | 1.628 | 1.868 | 1.967 | 1.934 | 1.702 | 1.815 |
 | Wiener filter | 1.316 | 1.205 | 1.404 | 1.422 | 1.408 | 1.374 | 1.355 |
 | Spectral subtraction | 1.303 | 1.197 | 1.372 | 1.395 | 1.375 | 1.352 | 1.332 |
@@ -206,25 +288,44 @@ Achievable gain is bounded by how much noise was present to begin with —
 measured correlation between input SNR and SNR gain is **−0.78**. A single
 average is therefore misleading in both directions, so results are stratified.
 
-| Input SNR | Clips | Unprocessed | Ours | PESQ > 2.5 | STOI (ours) | STOI > 0.85 |
+`combat32`, frozen defence set:
+
+| Input SNR | Clips | PESQ (unprocessed → ours) | PESQ > 2.5 | STOI | Output SNR | SNR > 15 dB |
 |---|---|---|---|---|---|---|
-| < 0 dB | 170 | 1.098 | 1.378 | No | 0.733 | No |
-| 0 – 5 dB | 232 | 1.176 | 1.723 | No | 0.852 | **Yes** |
-| 5 – 10 dB | 169 | 1.357 | 2.099 | No | 0.911 | **Yes** |
-| > 10 dB | 149 | 1.752 | **2.706** | **Yes** | 0.957 | **Yes** |
+| < 0 dB | 170 | 1.098 → 1.48 | No | 0.76 | 6.3 dB | No |
+| 0 – 5 dB | 232 | 1.176 → 1.89 | No | 0.87 ✅ | 10.3 dB | No |
+| 5 – 10 dB | 169 | 1.357 → 2.29 | No | 0.92 ✅ | 13.3 dB | No |
+| 10 – 15 dB | 95 | 1.583 → **2.83** | **Yes** | 0.96 ✅ | **17.4 dB** | **Yes** |
+| > 15 dB | 54 | 2.050 → **3.18** | **Yes** | 0.97 ✅ | **20.2 dB** | **Yes** |
+
+All three targets pass together from 10 dB input upward. Below 0 dB — gunfire
+louder than the talker — nothing here comes close, and that is the honest
+boundary of this model.
 
 ### Speed and latency
+
+`combat32`, ONNX streaming, one CPU thread, idle machine
+(`results/bench_edge_combat32.json`):
 
 | Stage | ms |
 |---|---|
 | Chunk buffering (hop) | 16.00 |
 | Overlap-add delay (**measured**, = `win − hop`) | 16.00 |
-| Model compute (p95, 1 thread) | 6.01 |
-| **Total** | **38.01** |
+| Model compute (p95, 1 thread) | 8.99 |
+| **Total** | **40.99** |
 
-**RTF 0.2955** (target < 0.5) — passes comfortably.
-**Latency 38.01 ms** against a 32 ms target — **does not pass, and cannot.**
-See [Known limitations](#known-limitations).
+**RTF 0.476** (target < 0.5) — passes, with less headroom than the 48K model's
+0.2955, which is the price of 2.1× the parameters. Per-frame compute: p50
+7.31 ms, p95 8.99 ms, worst frame 16.23 ms against the 16 ms deadline, so a
+rare frame does run late on this laptop; an embedded GPU or TensorRT build has
+far more margin.
+
+**Latency 40.99 ms** against a 32 ms target — **does not pass, and cannot** at
+this framing. See [Known limitations](#known-limitations).
+
+Width was chosen on this measurement, not by preference: width 16 → RTF 0.286,
+width 32 → 0.482, width 48 → 0.708 (worst frame 16.8 ms). 32 is the widest that
+still fits the real-time budget on a laptop CPU.
 
 ### Is the measurement trustworthy?
 
@@ -239,6 +340,60 @@ published numbers exist to check against:
 The pipeline reproduces the published baseline exactly, which independently
 verifies the resampling chain, the ITU-T P.862 PESQ build, the STFT framing and
 the inference path. Every other number here rests on that calibration.
+
+---
+
+## Model lineup
+
+Every `.onnx` here is a **self-contained streaming model**: 16 kHz mono, one
+16 ms frame per call, three caches you feed back in. Cache shapes differ with
+width and are read from the graph — never hardcode them.
+
+| File | Width / params | Trained on | Use it for |
+|---|---|---|---|
+| `artifacts/model_combat32_simple.onnx` | 32 / 103,381 | synthetic defence mixtures + real combat audio | **best model; use this** |
+| `artifacts/model_wide32_simple.onnx` | 32 / 103,381 | synthetic defence mixtures only | ablation: what real audio added |
+| `artifacts/model_simple.onnx` (= `model.onnx`) | 16 / 48,245 | synthetic defence mixtures, fine-tuned from DNS3 | the current **shipped** deliverable |
+| `artifacts/gtcrn_dns3_simple.onnx` | 16 / 48,245 | upstream DNS3 release | pretrained baseline |
+| `artifacts/passthrough_stub.onnx` | — | — | Day-1 identity stub with the real interface |
+
+`artifacts/model.onnx` and the handoff bundle (`SPEC.md`,
+`example_inference.py`) still describe the 48K model. **Swapping the deliverable
+to `combat32` is a team decision that has not been taken** — once it is, run
+`python scripts/make_handoff.py --model artifacts/model_combat32_simple.onnx`
+and the spec sheet and example regenerate themselves, cache shapes included.
+
+Checkpoints (`checkpoints/*.pt`) carry optimiser state so training resumes; the
+`.onnx` files are what the hardware team runs.
+
+---
+
+## The real combat audio
+
+`combat32`'s advantage comes from training on actual battlefield recordings
+rather than only on synthetic mixtures. The team collected 98 combat videos
+(Syria and Ukraine, from YouTube). Turning them into usable noise took four
+steps, because **more than half of that audio has people talking in it** — and
+training on speech-as-noise would teach the model to delete voices.
+
+| Step | Script | Result |
+|---|---|---|
+| 1. Fetch | `download_drive_combat.py` | 98 videos, 4.2 GB (checks each file really is a video) |
+| 2. Extract | `extract_drive_audio.py` | 96 with audio → 12.7 h at 16 kHz mono |
+| 3. Tag | `tag_drive_audio.py` | PANNs Cnn14 scores every 1 s window over 527 AudioSet classes; **median speech score 0.47** |
+| 4. Select | `select_drive_segments.py` | keep `speech < 0.1`, `music < 0.1`, above −50 dBFS; trim 0.5 s off each edge; ≥ 3 s → **2.9 h**, split **by video** |
+| 5. Verify | `whisper_check_segments.py` | Whisper re-checks every segment: 6 of 1454 flagged, all hallucinations ("Thank you.", "BOOM!"), dropped anyway |
+| 6. Register | `add_drive_to_manifest.py` | `combat_real` category in `manifests/manifest_combat.json` (the original manifest is untouched) |
+
+Splitting **by video** matters: segments from one video share a location, a
+weapon and a microphone, so splitting by segment would leak the test set into
+training. 68 videos train, 4 validate, 21 are reserved for the real-combat test
+set and appear nowhere else.
+
+The folder ID is deliberately kept out of this repository
+(`C:\SIH26052_data\drive_folder_id.txt`): the material is third-party
+copyrighted footage, used here as **noise audio only**, never shown, and it
+would have to be replaced with cleared sources before any procurement use.
 
 ---
 
@@ -320,10 +475,15 @@ SI-SDR **6.3 → 13.0 dB**.
 ```bash
 PY=.venv/bin/python
 
-# current best: low-SNR model with the suppression cap
+# best on every measured test set (PESQ / STOI / SNR)
+$PY -m src.stream_demo --file path/to/your.wav \
+    --onnx artifacts/model_combat32_simple.onnx
+# writes results/demo/before.wav and results/demo/after.wav
+
+# best WORD SCORE so far on real recordings (w16 lowsnr + suppression cap).
+# combat32 has not been ASR-tested yet - see "Current status".
 $PY -m src.stream_demo --file path/to/your.wav \
     --onnx artifacts/model_lowsnr_simple.onnx --floor-db -18
-# writes results/demo/before.wav and results/demo/after.wav
 
 # the original shipped model, for comparison
 $PY -m src.stream_demo --file path/to/your.wav --onnx artifacts/model_simple.onnx
@@ -499,7 +659,11 @@ Note the index of your microphone (input) and your headphones (output).
 ### Run it
 
 ```bash
-# A - current best: low-SNR model with the suppression cap
+# A - best on the measured test sets
+$PY -m src.stream_demo --live --onnx artifacts/model_combat32_simple.onnx \
+    --in-device 1 --out-device 4
+
+# A2 - best word score on real recordings so far (w16 lowsnr + cap)
 $PY -m src.stream_demo --live --onnx artifacts/model_lowsnr_simple.onnx \
     --floor-db -18 --in-device 1 --out-device 4
 
@@ -626,21 +790,25 @@ Or stage by stage:
 
 ## Testing
 
-### Unit tests — 19 invariants
+### Unit tests — 36 invariants
 
 Two of them exercise the PyTorch STFT and **skip with a clear reason** when
 PyTorch is unavailable, so the suite still reports on a machine set up for
 inference only:
 
 ```
-19 passed                   # full environment
-17 passed, 2 skipped        # PyTorch absent or blocked
+36 passed                   # full environment
+30 passed, 6 skipped        # PyTorch absent or blocked
 ```
 
 Those two tests were previously **broken rather than skipping** - the module
 bound `S` to `src.framing`, which is NumPy-only and has no `stft`/`istft`, while
 they called `S.stft`. They raised `AttributeError` whenever PyTorch was present.
-Fixed; the suite now genuinely reports `19 passed`.
+Fixed; the suite genuinely reports every test it claims. It has since grown to
+36, adding the width wrapper (`tests/test_wide.py` — width 16 must stay
+bit-identical to upstream, and a wide streaming export must match its offline
+model) and the training-loader guard (`tests/test_train_loader.py`, invariant
+14a).
 
 ```bash
 PY=.venv/bin/python
@@ -819,8 +987,25 @@ that admits them.
 
 1. **The 32 ms latency target cannot be met** with GTCRN's 512/256 framing.
    16 ms of chunk buffering plus a *measured* 16 ms overlap-add delay is 32 ms
-   before a single multiply; the total is 38.01 ms. No faster processor fixes
-   this. The fix is 320/160 framing (20 ms window, ~21 ms total) and a retrain.
+   before a single multiply; the total is 40.99 ms for `combat32` (38.01 ms for
+   the 48K model). No faster processor fixes the 32 ms floor. The fix is
+   320/160 framing (20 ms window, ~21 ms total) and a retrain.
+
+1b. **PESQ and output SNR miss their targets as a whole-set average** — 2.106
+   against 2.5, and 11.72 dB against 15 dB. Both pass from 10 dB input SNR
+   upward, and output SNR passes on VoiceBank-DEMAND (17.52 dB). The gap sits
+   entirely in the low-input-SNR clips, where gunfire is louder than the talker.
+
+1c. **Until 22 Sep 2026 every training run saw the same mixtures each epoch**
+   (persistent DataLoader workers never got `set_epoch`; CLAUDE.md invariant
+   14a, pinned by `tests/test_train_loader.py`). Earlier models are
+   under-trained rather than mis-measured, but any conclusion of the form "more
+   epochs / more capacity would not help" drawn before that date is confounded.
+   `combat32` ran with the fix from epoch 20 on.
+
+1d. **`combat32` changed two variables at once** — real combat audio *and* the
+   fix above — so their individual contributions are unknown. A `wide32`
+   retrain with only the fix would separate them.
 
 2. **The transient-weighted loss term was tested and dropped.** It was built as
    the structural answer to "gunshots still get through", but a paired ablation
@@ -834,9 +1019,14 @@ that admits them.
 3. **`SNR gain > 15 dB` is not well-posed on its own** (measured correlation with
    input SNR: −0.78). Reported by band instead.
 
-4. **Gunfire suppression is uneven.** The +7 dB figure is an average; individual
-   shots range from clearly removed to barely attenuated. This is "substantially
-   reduces gunfire", not "removes it".
+4. **Gunfire suppression is uneven.** The +8.4 dB figure is an average;
+   individual shots range from clearly removed to barely attenuated. This is
+   "substantially reduces gunfire", not "removes it".
+
+4b. **The real combat audio is third-party YouTube footage** (`combat_real`),
+   used as noise only. Fine for research and the competition; it must be
+   replaced with cleared recordings before procurement, exactly like the
+   CC BY-NC corpora in point 7.
 
 5. **Artillery and rotor rest on thin evidence** — 66 and 72 distinct source
    recordings, against 2,165 for gunshot and 2,617 for engine.

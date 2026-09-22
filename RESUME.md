@@ -6,6 +6,44 @@ setup, and where to hear every audio file.
 
 ---
 
+## In one screen — state at 23 Sep 2026, 01:00 IST
+
+**Best model:** `combat32` — `artifacts/model_combat32_simple.onnx`,
+`checkpoints/combat32_best.pt`. Width 32 (103,381 params), trained on defence
+mixtures + real combat audio. Best of every model on all three test sets.
+
+| | PESQ-WB | STOI | out SNR | vs target |
+|---|---|---|---|---|
+| frozen defence set (720) | 2.106 | 0.876 | 11.72 dB | STOI ✅, PESQ −0.39, SNR −3.3 dB |
+| real combat set (150) | 1.977 | 0.865 | 12.15 dB | STOI ✅ |
+| VoiceBank-DEMAND (824) | 2.334 | 0.911 | 17.52 dB | STOI ✅, **SNR ✅** |
+
+All three targets pass at input SNR ≥ 10 dB (2.83 / 0.96 / 17.4 dB).
+RTF 0.476 ✅ (< 0.5); latency 40.99 ms ✗ (32 ms is unreachable at 512/256).
+
+**Nothing is running.** Training finished 23 Sep 00:27 (60/60 epochs).
+
+**Open decisions, in priority order:**
+1. **Swap the deliverable to `combat32`?** `artifacts/model.onnx`, `SPEC.md`
+   and `example_inference.py` still describe the w16 model. One command:
+   `python scripts/make_handoff.py --model artifacts/model_combat32_simple.onnx`.
+2. **Re-run the ASR intelligibility test** (`scripts/asr_score.py --model
+   medium`) on `combat32`. The "suppression kills words" finding is measured on
+   the w16 model only; it is the project's most important open question.
+3. **Retrain `wide32` with the 14a fix alone**, to separate "real data" from
+   "training data that actually changes" in the `combat32` result.
+4. **Revert the power setting** when no training is planned:
+   `powercfg /change standby-timeout-ac 15` (set to Never on 21 Sep).
+5. Push the latest work to the teammate's repo branch
+   (`Babanstar456/SIH-2026-main`, branch `wide-gtcrn-onnx-eval`) — it still
+   stops at 21 Sep. The user's own repo `ayushikundu5/SIH-2026` is current.
+
+**Deadline context:** SIH PPT submission 23 Sep. The GitHub link that goes with
+it is `ayushikundu5/SIH-2026` — **private**, so it must be made public or the
+evaluators added before submitting.
+
+---
+
 ## 21 Sep 2026 — merge + where the three PS targets stand
 
 Teammate repo (commit `23bf15b`) merged into the Windows copy. Goal now: the
@@ -49,8 +87,20 @@ validated against the torch path: PESQ 1.931 vs 1.933 on the same 720 clips).
   −32.55 dB an unaligned comparison produces (invariant 10). Re-measure before
   claiming "RNNoise/DeepFilterNet lose to unprocessed".
 
-**Torch on the Windows machine goes through WSL2.** Smart App Control blocks
-`torch.dll` natively (WinError 4551), so training/export run in WSL2
+**Torch on the Windows machine: native again as of 23 Sep** — `import torch`
+succeeds with `cuda.is_available() == True` and all 36 tests pass natively,
+although Smart App Control still reports enabled, so this is reputation-based
+and may flip back. Native is also FASTER than WSL for training (0.26 s/step
+measured natively vs 0.39 s/step in WSL, which reads the dataset over the 9P
+bridge unless it is mirrored to `/root/sih/data`). **Check first**, then choose:
+
+```powershell
+& "C:\SIH26052_data\.venv\Scripts\python.exe" -c "import torch; print(torch.cuda.is_available())"
+```
+
+The WSL2 route below stays valid as the fallback (and is what `combat32` was
+trained with). Smart App Control blocked `torch.dll` natively on 21-22 Sep
+(WinError 4551), so training/export ran in WSL2
 Ubuntu-24.04 with its own venv at `/root/sih/.venv` (torch 2.13.0+cu126, sees
 the RTX 3050). Manifest paths (`C:\...`) are mapped to `/mnt/c/...` by
 `audio.local_path`. From Git Bash (`MSYS_NO_PATHCONV=1` stops Git Bash

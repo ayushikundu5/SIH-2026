@@ -7,8 +7,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 SIH 2026 problem 26052: a **streaming speech-enhancement model** that strips
 gunfire, artillery, rotor and engine noise off a soldier's outgoing microphone
 feed, small enough for an embedded chip. Base model is **GTCRN** (48,245
-parameters, ICASSP 2024, MIT), vendored at `src/models/gtcrn.py` and fine-tuned
-here on defence-noise mixtures.
+parameters at upstream width 16, ICASSP 2024, MIT), vendored at
+`src/models/gtcrn.py` and fine-tuned here on defence-noise mixtures. Width is a
+parameter now (`src/models/gtcrn_wide.py`); the current best model is width 32
+(103,381 params) trained on defence mixtures **plus real combat audio**.
 
 **Scope boundary — this matters.** This repo is *Path 1* only: the DNN that
 cleans the **outgoing transmitted voice**. Earcup rumble cancellation, the
@@ -21,12 +23,36 @@ Requests to "amplify the voice" belong to the analog path downstream, not here.
 Read **`RESUME.md`** for current state and what to do next. Read **`README.md`**
 for results, setup and the full command reference.
 
-## Status, as of the last session — read before changing anything
+## Status, as of 23 Sep 2026 — read before changing anything
 
-The deliverable is built and **it does not yet do its job.** On real recordings
-the model removes gunfire and takes the intelligibility of the speech with it.
-Measured by ASR word recognition (`scripts/asr_score.py`, whisper-medium, 26
-known tokens):
+**Current best model: `combat32`** (`artifacts/model_combat32_simple.onnx`,
+width 32, 103,381 params, `checkpoints/combat32_best.pt`). Best of every model
+here on all three test sets, paired p < 1e-10 against `wide32`:
+
+| model | frozen defence (720) | real combat (150) | VoiceBank-DEMAND (824) |
+|---|---|---|---|
+| | PESQ-WB / STOI / out SNR | PESQ-WB / STOI / out SNR | PESQ-WB / STOI / out SNR |
+| unprocessed | 1.319 / 0.801 / 4.41 | 1.298 / 0.783 / 5.72 | 1.968 / 0.921 / 8.45 |
+| shipped (w16) | 1.931 / 0.860 / 10.79 | 1.858 / 0.850 / 11.46 | 2.387 / 0.921 / 16.34 |
+| wide32 | 2.057 / 0.873 / 11.44 | 1.879 / 0.860 / 11.94 | 2.111 / 0.903 / 15.91 |
+| **combat32** | **2.106 / 0.876 / 11.72** | **1.977 / 0.865 / 12.15** | **2.334 / 0.911 / 17.52** |
+
+STOI passes in every category (0.851-0.905); PESQ and output SNR pass only from
+input SNR >= 10 dB (2.83 / 0.96 / 17.4 dB). RTF 0.476, latency 40.99 ms.
+`artifacts/model.onnx` and the handoff bundle STILL hold the w16 model - the
+swap is a team decision (`make_handoff.py --model artifacts/model_combat32_simple.onnx`).
+
+**Two caveats that change how earlier conclusions should be read:**
+- Runs before 22 Sep saw one fixed mixture set every epoch (invariant 14a), so
+  "capacity ceiling" readings of flat val curves are confounded.
+- `combat32` added real combat audio AND ran with that fix: attribution unknown.
+
+**The intelligibility warning below was measured on the w16 model and has NOT
+been re-run on wide32/combat32.** Nothing here answers it yet.
+
+On real recordings that model removed gunfire and took the intelligibility of
+the speech with it. Measured by ASR word recognition (`scripts/asr_score.py`,
+whisper-medium, 26 known tokens):
 
 | recording | input SNR | unprocessed | + floor -18 dB | model, full depth |
 |---|---|---|---|---|
@@ -58,10 +84,23 @@ $PY = "C:\SIH26052_data\.venv\Scripts\python.exe"    # Windows: venv OUTSIDE One
 
 On Windows the code sits inside OneDrive, so the venv and data live under
 `C:\SIH26052_data` to keep ~50,000 files out of the sync. `run.ps1` is the
-Windows twin of `run.sh` (same stage names). **Windows Smart App Control blocks
-`torch.dll` on the Windows machine** (`WinError 4551`): ONNX inference,
-evaluation of ONNX/classical methods and the torch-free tests work; training,
-export and `gtcrn:<ckpt>` methods do not until torch can load.
+Windows twin of `run.sh` (same stage names).
+
+**Smart App Control blocked `torch.dll` on the Windows machine (`WinError
+4551`) from 21-22 Sep, and as of 23 Sep it loads again** - torch 2.13.0+cu126
+with `cuda.is_available() == True`, SAC still reporting enabled, so this is
+reputation-based and could flip back without warning. Check before assuming
+either state:
+
+```powershell
+& $PY -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+```
+
+If it raises `WinError 4551` again, everything torch (training, ONNX export,
+`gtcrn:<ckpt>` evaluation) runs in WSL2 instead - see the WSL section in
+`RESUME.md`. ONNX inference, the classical baselines and 30 of the 36 tests
+never need torch either way, by design (see "The inference path must not import
+PyTorch").
 
 Python 3.12, not the system 3.14 — PyTorch ships CPU-only wheels for 3.14, so
 3.14 silently gives you no GPU and a ~50x slowdown with no error.
@@ -210,6 +249,28 @@ because that is what it receives in the field.
 Where a corpus provides ground-truth event timestamps (the firearm corpus ships
 6,212 annotated shots), `audio.load_burst` cuts at the annotation rather than at
 an energy-detected onset.
+
+### Real combat audio is a separate, speech-filtered corpus (`combat_real`)
+
+98 combat videos (team Drive folder; YouTube, Syria/Ukraine) -> 12.7 h of audio
+-> 2.9 h of speech-free noise, added as the `combat_real` category. Pipeline:
+`download_drive_combat.py` -> `extract_drive_audio.py` -> `tag_drive_audio.py`
+(PANNs Cnn14, every 1 s window over 527 AudioSet classes) ->
+`select_drive_segments.py` -> `whisper_check_segments.py` ->
+`add_drive_to_manifest.py`.
+
+**The filtering is the point: the median 1 s window scores 0.47 for speech.**
+More than half of this material has people talking in it, and training on that
+as "noise" teaches the model that voices are noise - the one thing this project
+must never learn. Two independent detectors are used (PANNs thresholds, then
+Whisper on every kept segment), and the splits are **by video**, because
+segments of one video share a location, weapon and microphone.
+
+It lives in `manifests/manifest_combat.json` + `configs/data_combat.yaml`; the
+original manifest and `data.yaml` are untouched, so the frozen test set stays
+byte-reproducible from them. `make_testset.py --config/--manifest/--categories/
+--no-background` rendered the extra real-combat test set (21 held-out videos).
+Segment wavs are NOT in git - regenerate them with the scripts above.
 
 ### The transient mask threads through the codebase
 
@@ -529,6 +590,27 @@ baseline is real — +1.376 dB on gunshot bursts (p = 0.0004), +0.798 dB on
 artillery (p = 0.0099) — but it comes from **the training data, not the
 objective**. Keep `--w-transient` so the experiment stays repeatable.
 
+### Width and real data both pay - and a specialist loses generality
+
+Measured on the frozen defence set (PESQ-WB), each step paired per clip:
+
+| step | PESQ | what changed |
+|---|---|---|
+| shipped, w16 48K | 1.931 | fine-tuned from DNS3 |
+| wide32, from scratch | 2.057 | +0.125 (better on 82% of clips) - 2.1x params |
+| combat32 | 2.106 | +0.050 (78%) - real combat audio + the 14a fix |
+
+But `wide32`, trained only on our synthetic defence mixtures, **dropped to STOI
+0.903 on VoiceBank-DEMAND - below unprocessed (0.921)**: a defence specialist
+that got worse at ordinary noise, the mirror image of the `gtcrn_vctk` finding
+below. Adding real combat audio pulled it back to 0.911 / PESQ 2.334 while also
+improving every defence number, so **a mixed diet beats a pure one even when
+only the defence numbers are being optimised**.
+
+Width was picked by measurement, not preference: RTF 0.286 / 0.482 / 0.708 at
+widths 16 / 32 / 48 on this laptop's CPU, so 32 is the widest that keeps
+RTF < 0.5 (width 48's worst frame also overruns the 16 ms deadline).
+
 ### Domain transfer is strongly asymmetric
 
 `gtcrn_vctk` scores PESQ **2.868** on VoiceBank-DEMAND (better than DNS3's
@@ -540,12 +622,19 @@ argument in the project for domain-specific training.
 ### The latency target cannot be met
 
 Measured: 16 ms chunk buffering + 16 ms overlap-add delay (= `win − hop`,
-measured by cross-correlation in `src/bench.py`, not assumed) + 6.01 ms compute
-= **38.01 ms**. The 32 ms floor exists before any arithmetic. The problem
-statement asks for 16 ms chunks *and* under 32 ms delay; both derive from
-`n_fft=512`, so they cannot both hold. Fix, if the ceiling is hard: retrain at
-320/160 (20 ms window, ~21 ms total). RTF passes comfortably either way
-(0.2955 vs < 0.5 target).
+measured by cross-correlation in `src/bench.py`, not assumed) + compute.
+The 32 ms floor exists before any arithmetic. The problem statement asks for
+16 ms chunks *and* under 32 ms delay; both derive from `n_fft=512`, so they
+cannot both hold. Fix, if the ceiling is hard: retrain at 320/160 (20 ms
+window, ~21 ms total).
+
+| model | compute p95 | total | RTF (target < 0.5) |
+|---|---|---|---|
+| w16 (shipped) | 6.01 ms | **38.01 ms** | 0.2955 |
+| w32 (`combat32`) | 8.99 ms | **40.99 ms** | 0.4761 |
+
+Width 32 keeps RTF inside the budget but its worst frame (16.2 ms) grazes the
+16 ms deadline on this laptop's CPU; width 48 (RTF 0.708) does not fit at all.
 
 Most of the compute term is ONNX Runtime per-call dispatch across many small
 graph nodes rather than arithmetic — at 33 MMACs/s the actual maths is well under
