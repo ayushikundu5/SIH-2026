@@ -39,7 +39,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src import stft as S                       # noqa: E402
-from src.models.gtcrn import GTCRN              # noqa: E402
+from src.models.gtcrn_wide import cache_shapes, make_gtcrn   # noqa: E402
 
 SR_LOCAL = S.SR
 HOP_MS = 1000.0 * S.HOP / S.SR      # 16.0
@@ -112,10 +112,11 @@ def measure_streaming_delay(onnx_path: Path, seconds: float = 4.0) -> dict:
             "equals_win_minus_hop": lag == (S.WIN - S.HOP)}
 
 
-def bench_torch_offline(seconds: float = 10.0, threads: int = 1) -> dict:
+def bench_torch_offline(seconds: float = 10.0, threads: int = 1,
+                        width: int = 16) -> dict:
     """Whole-utterance PyTorch CPU path, for reference against the ONNX path."""
     torch.set_num_threads(threads)
-    model = GTCRN().eval()
+    model = make_gtcrn(width).eval()
     x = torch.randn(int(S.SR * seconds))
     with torch.no_grad():
         for _ in range(2):
@@ -136,13 +137,22 @@ def main() -> None:
     ap.add_argument("--frames", type=int, default=800)
     ap.add_argument("--threads", type=int, nargs="+", default=[1, 4])
     ap.add_argument("--out", default="results/bench.json")
+    ap.add_argument("--width", type=int, default=None,
+                    help="model width for the parameter count and torch "
+                         "reference; default: read from the ONNX cache shapes")
     a = ap.parse_args()
 
     onnx_path = Path(a.onnx) if Path(a.onnx).is_absolute() else ROOT / a.onnx
     if not onnx_path.exists():
         raise SystemExit(f"{onnx_path} not found - run src.export_onnx first")
 
-    n_par = sum(p.numel() for p in GTCRN().parameters())
+    if a.width is None:
+        import onnxruntime as ort
+        ins = {i.name: i.shape for i in ort.InferenceSession(
+            str(onnx_path), providers=["CPUExecutionProvider"]).get_inputs()}
+        a.width = int(ins["inter_cache"][-1])
+    assert cache_shapes(a.width)[2][-1] == a.width
+    n_par = sum(p.numel() for p in make_gtcrn(a.width).parameters())
     report: dict = {
         "platform": platform.processor() or platform.machine(),
         "python": platform.python_version(),
@@ -164,7 +174,7 @@ def main() -> None:
               f"max={r['ms_max']:.3f}ms  RTF={r['rtf_mean']:.4f}")
 
     for th in a.threads:
-        r = bench_torch_offline(threads=th)
+        r = bench_torch_offline(threads=th, width=a.width)
         report["torch_offline"].append(r)
         print(f"PyTorch offline, {th} thread(s): RTF={r['rtf']:.4f}")
 

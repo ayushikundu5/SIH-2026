@@ -1,0 +1,35 @@
+{
+ "device": "AMD64",
+ "platform": "Windows-11-10.0.26200-SP0",
+ "python": "3.12.10",
+ "onnx": "C:\\Users\\Ayushi Kundu\\OneDrive\\Desktop\\SIH_2026\\artifacts\\model_wide32_simple.onnx",
+ "model_size_kb": 745.2880859375,
+ "hop_ms": 16.0,
+ "window_ms": 32.0,
+ "onnx_runs": [
+  {
+   "threads": 1,
+   "frames": 800,
+   "ms_p50": 7.492550008464605,
+   "ms_p95": 8.84367999387905,
+   "ms_p99": 9.246052026865073,
+   "ms_mean": 7.743056000836077,
+   "ms_max": 10.930900054518133,
+   "rtf_mean": 0.4839410000522548,
+   "rtf_p95": 0.5527299996174406
+  }
+ ],
+ "measured_streaming_delay": {
+  "delay_samples": 256,
+  "delay_ms": 16.0,
+  "equals_win_minus_hop": true
+ },
+ "latency_budget_ms": {
+  "chunk_buffering": 16.0,
+  "overlap_add_delay_measured": 16.0,
+  "model_compute_p95": 8.84367999387905,
+  "total_p95": 40.84367999387905
+ },
+ "rtf_pass": true,
+ "latency_pass": false
+}

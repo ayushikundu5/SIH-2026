@@ -6,6 +6,149 @@ setup, and where to hear every audio file.
 
 ---
 
+## 21 Sep 2026 — merge + where the three PS targets stand
+
+Teammate repo (commit `23bf15b`) merged into the Windows copy. Goal now: the
+problem statement's targets — PESQ > 2.5, STOI > 0.85, SNR > 15 dB — before
+the SIH PPT round.
+
+**Measured, torch-free, via the shipped ONNX exports** (`onnx:<path>` method,
+validated against the torch path: PESQ 1.931 vs 1.933 on the same 720 clips).
+`results/results_onnx.md`, `results/results_vbd_onnx.md`:
+
+| model | frozen defence set PESQ-WB / STOI / output SNR | VoiceBank-DEMAND PESQ-WB / STOI / output SNR |
+|---|---|---|
+| unprocessed | 1.319 / 0.801 / 4.41 dB | 1.968 / 0.921 / 8.45 dB |
+| gtcrn_dns3 (pretrained) | 1.814 / 0.854 / 10.07 dB | 2.511 / 0.915 / 15.87 dB |
+| **shipped** | **1.931 / 0.860 / 10.79 dB** | 2.387 / 0.921 / 16.34 dB |
+| lowsnr | 1.854 / 0.851 / 10.18 dB | 2.420 / 0.919 / 16.82 dB |
+
+- **STOI passes; PESQ (−0.57) and SNR (−4.2 dB output) do not** on the defence set.
+- **`lowsnr` is worse than shipped on the frozen set on every metric**
+  (paired, 720 clips: PESQ −0.078, STOI −0.009, SNR −0.60 dB, all p < 1e-50),
+  including the < 0 dB input band it was trained for. Its claimed advantage is
+  on real recordings via ASR — a different instrument; not contradicted, but it
+  does not help the PS targets.
+- **Capacity is the ceiling.** Three differently-trained 48K-param GTCRNs land
+  at PESQ 1.81–1.93; val PESQ in `train_log_ft.csv` moves 1.779 → 1.788 over 60
+  epochs while train loss keeps falling. More training of the same model will
+  not close 0.57 PESQ. Next lever: a wider GTCRN (width is hardcoded to 16 in
+  `src/models/gtcrn.py`, the stream export and `framing.py` cache shapes).
+- **The SNR target has two readings.** The code scored SNR *gain* > 15 dB, which
+  is unreachable here (median input +4 dB). "Output SNR > 15 dB" is the reading
+  parallel to STOI/PESQ. Tables now show both, labelled. Choice is the team's.
+- **PESQ-NB added alongside WB** (shipped: 2.495 on the defence set). Pass/fail
+  stays on wideband.
+- **Live demo of how the numbers are made:** `scripts/explain_metrics.py`
+  (`--category gunshot --n 5`, `--id gunshot/0000`) scores a few frozen-set
+  clips before/after through the shipped ONNX with the same `metrics.py`
+  calls as `evaluate.py`, and writes clean/noisy/output wavs to
+  `results/explain_metrics/`. Cross-checked: identical to `per_clip_onnx.csv`.
+- **Suspect row in `results/method_comparison.md`:** `_rnnoise` never
+  compensates RNNoise's 10 ms frame delay; −32.77 dB SI-SDR matches the
+  −32.55 dB an unaligned comparison produces (invariant 10). Re-measure before
+  claiming "RNNoise/DeepFilterNet lose to unprocessed".
+
+**Torch on the Windows machine goes through WSL2.** Smart App Control blocks
+`torch.dll` natively (WinError 4551), so training/export run in WSL2
+Ubuntu-24.04 with its own venv at `/root/sih/.venv` (torch 2.13.0+cu126, sees
+the RTX 3050). Manifest paths (`C:\...`) are mapped to `/mnt/c/...` by
+`audio.local_path`. From Git Bash (`MSYS_NO_PATHCONV=1` stops Git Bash
+rewriting the Linux paths; `wsl.exe` also swallows `$vars` in `bash -c`, so use
+script files):
+
+```bash
+MSYS_NO_PATHCONV=1 wsl.exe -d Ubuntu-24.04 -u root -- bash /mnt/c/SIH26052_data/wsl_run.sh -m pytest tests -q
+```
+
+Windows-native still does ONNX eval: `evaluate.py --workers 11` with `onnx:`
+methods, ~3 min per model for the 720-clip set.
+
+### Done: `wide32` — GTCRN at width 32, from scratch
+
+Trained 21 Sep 17:48 -> 22 Sep 12:25 IST, `configs/train_wide.yaml`. Stopped
+deliberately at epoch 158/180: val PESQ had been flat at 1.920-1.922 for 25
+epochs at LR < 1e-4. Best = epoch 132 (val PESQ 1.922 vs shipped 1.788).
+Exported `artifacts/model_wide32{,_simple}.onnx` (103,381 params; streaming
+matches offline, max abs diff 4.4e-7; `results/onnx_verify_wide32.json`).
+Width 32 because it is the widest that keeps RTF < 0.5 on this laptop (w16
+0.286, w32 0.482, w48 0.708 measured); final model: **RTF 0.484, p95 8.8 ms,
+max 10.9 ms per 16 ms frame** (`results/bench_edge_wide32.json`, idle machine).
+
+**Result — a defence specialist that lost generality:**
+
+| | frozen defence set (720) PESQ-WB / STOI / out SNR | VoiceBank-DEMAND (824) PESQ-WB / STOI / out SNR |
+|---|---|---|
+| unprocessed | 1.319 / 0.801 / 4.41 | 1.968 / 0.921 / 8.45 |
+| shipped (w16, fine-tuned from DNS3) | 1.931 / 0.860 / 10.79 | **2.387 / 0.921 / 16.34** |
+| **wide32 (from scratch)** | **2.057 / 0.873 / 11.44** | 2.111 / 0.903 / 15.91 |
+
+- Defence set: wide32 beats shipped on every metric and every category
+  (paired: PESQ +0.125 better on 82% of clips, STOI +0.013 / 87%, SNR +0.65 dB
+  / 83%, all p < 1e-58); burst SI-SDR gain gunshot 7.16 -> 8.12, artillery
+  7.90 -> 8.44 dB. Passes all three targets at input SNR >= 10 dB.
+- VoiceBank-DEMAND: wide32 is WORSE than shipped (PESQ -0.28, STOI -0.018,
+  STOI now below unprocessed). Trained from scratch on LibriSpeech + defence
+  noise only, it never saw what DNS3 pretraining gave shipped. Same asymmetry
+  as the gtcrn_vctk finding in CLAUDE.md, in the other direction.
+- `checkpoints/shipped_best.pt` / `artifacts/model.onnx` are UNCHANGED - which
+  model to ship is an open decision. Next lever if time allows: fine-tune
+  wide32 on mixtures that include general (non-defence) noise, or initialise a
+  wide model from DNS3 weights (not possible across widths directly).
+- `C:\SIH26052_data\STOP_TRAINING` was left in place so the .ps1 cannot
+  restart the finished run by accident. Delete it before any new run.
+
+Two things that cost time on the first attempt, both fixed:
+- **Reading `C:` from WSL runs ~1.1 s/step; WSL-local disk runs 0.39 s/step.**
+  The 19.7 GB of train/val audio the manifest references is mirrored at
+  `/root/sih/data` (`C:\SIH26052_data\copy_to_wsl.sh`, list in
+  `train_val_files.txt`) and selected with `SIH_DATA_ROOT=/root/sih/data`,
+  which `train_wide32.sh` exports. The test set is still read from `C:`.
+- **This laptop uses Modern Standby and slept for 2 h mid-copy.** The launcher
+  now also asserts `ES_DISPLAY_REQUIRED` (display stays on). Lid-close or a
+  manual Sleep still suspends it: keep it plugged in, lid open, for the run. New code behind it:
+`src/models/gtcrn_wide.py` (subclasses upstream, overrides `__init__` only;
+width 16 is bit-identical to upstream — `tests/test_wide.py`), width-aware
+`train.py --width/--lr/--init`, `export_onnx.py`, `bench.py`, and cache shapes
+read from the ONNX graph in `StreamingEnhancer`, `bench_edge.py` and the
+handoff `SPEC.md`/`example_inference.py`.
+
+- log: `C:\SIH26052_data\train_wide32.log`; per-epoch CSV: `results/train_log_wide32.csv`
+- the shipped model scored **val_pesq ~1.79** on the same val set — the bar to beat
+- launched detached by `C:\SIH26052_data\run_training_keep_awake.ps1`, which
+  re-asserts "stay awake, display on" every 60 s and runs
+  `train_wide32_loop.sh`: up to 30 attempts, each with `--resume`, so a crash
+  costs at most the epoch in progress. Lid-close/Sleep PAUSES training (it
+  survived a 24 min standby on 21 Sep and carried on).
+- **phone alerts:** `C:\SIH26052_data\phone_updates.sh` runs detached in WSL
+  and posts to ntfy.sh (topic in `C:\SIH26052_data\ntfy_topic.txt` - keep it
+  out of git): crash/stop/stall/finish at once, PESQ milestones, 2-hourly
+  status (07:00-24:00 only). Stop: `wsl -d Ubuntu-24.04 -u root -- pkill -f phone_updates.sh`.
+- **stop on purpose:** create `C:\SIH26052_data\STOP_TRAINING`, then
+  `wsl -d Ubuntu-24.04 -u root -- pkill -f src.train` (without the file, the
+  loop restarts it). Delete the file before relaunching.
+- **if the laptop was shut down / nothing is running:** re-run the .ps1
+  (right-click > Run with PowerShell; double-click only opens it in Notepad).
+- **Power setting changed for this run (21 Sep, at the owner's request):**
+  sleep-when-plugged-in set to Never (was 15 min). Battery setting untouched.
+  Undo after training: `powercfg /change standby-timeout-ac 15`.
+- **if running late:** stop it, then relaunch with fewer epochs by adding
+  `--epochs N` to the train line in `train_wide32_loop.sh` — the cosine LR is
+  recomputed from the new total on resume, so no progress is lost.
+- when done (or to check a mid-run best):
+
+```bash
+# in WSL: export + verify streaming ONNX of the best checkpoint
+bash /mnt/c/SIH26052_data/wsl_run.sh -m src.export_onnx --ckpt checkpoints/wide32_best.pt --out artifacts/model_wide32.onnx
+# on Windows: frozen-set eval, same instrument as the table above
+python -m src.evaluate --workers 11 --tag onnx --methods onnx:artifacts/model_wide32_simple.onnx
+```
+
+It beat `shipped` on the frozen set but not on VoiceBank-DEMAND (see table
+above), so the swap was left for the team to decide.
+
+---
+
 ## Read this first: the project's status changed
 
 The deliverable is built. **It does not yet do its job.**
@@ -94,16 +237,16 @@ That produced `checkpoints/lowsnr_best.pt`, which beats the shipped model
 substantially on real audio (take 3: 69% vs the shipped model's far worse
 performance at the same depth). Next steps:
 
-```powershell
-$PY = "C:\SIH26052_data\.venv\Scripts\python.exe"
+```bash
+PY=.venv/bin/python
 
 # push lower still
-& $PY -m src.train --tag lowsnr18 --data-config configs\data_lowsnr.yaml `
-      --w-transient 0.0 --w-consonant 1.0     # then edit snr_db to [-18, 6]
+$PY -m src.train --tag lowsnr18 --data-config configs/data_lowsnr.yaml \
+    --w-transient 0.0 --w-consonant 1.0     # then edit snr_db to [-18, 6]
 
 # isolate the consonant term - the lowsnr run changed TWO things at once
-& $PY -m src.train --tag lowsnr_noconsonant --data-config configs\data_lowsnr.yaml `
-      --w-transient 0.0 --w-consonant 0.0
+$PY -m src.train --tag lowsnr_noconsonant --data-config configs/data_lowsnr.yaml \
+    --w-transient 0.0 --w-consonant 0.0
 ```
 
 **The `lowsnr` run changed both the SNR range and the loss, so attribution
@@ -117,13 +260,47 @@ stopping — while PESQ is demonstrably not tracking word recognition. Selecting
 an ASR word score would optimise the thing that matters. This is a real change to
 `src/train.py` and needs care: ASR scoring is slow, so it cannot run every epoch.
 
-### 4. Understand why deep suppression destroys words
+### 4. Understand why deep suppression destroys words — ANSWERED
 
-Nobody has looked at *what* the model removes when it over-suppresses. The floor
-sweep shows the tradeoff but not the mechanism. A spectrogram diff between
-`floor_18dB` and `floor_full_model` on take 3, focused on consonant regions,
-would say whether it is over-gating brief high-frequency events (likely) or
-something else.
+`scripts/spectrogram_diff.py`, run on take 3's `floor_18dB.wav` vs
+`floor_full_model.wav` (sample-aligned to each other — same input, same
+pipeline, no timing correction needed). The original hypothesis here was
+"over-gating brief high-frequency events" — **that is not what the data
+shows.**
+
+Measured, using this project's own CVR bands (`scripts/intelligibility.py`:
+vowel 200–800 Hz, fricative/stop 2–6 kHz):
+
+| | CVR |
+|---|---|
+| clean-speech reference | −10.68 dB |
+| floor-capped (−18 dB) | −12.77 dB |
+| full model | **−23.79 dB** |
+
+Going from floor-capped to full model, the fricative band loses a median
+**21.2 dB** more than it already had, against **11.1 dB** more in the vowel
+band — the model disproportionately attacks the exact band that carries
+consonant identity, as expected. What was NOT expected: the excess-kurtosis
+of that extra suppression across time is **−0.59**, i.e. close to zero /
+slightly *below* Gaussian — meaning it is **not concentrated in a few loud
+transient frames**. The spectrogram diff plot
+(`results/spectrogram_diff.png`) shows why directly: a near-continuous
+suppression band from roughly 1–7 kHz runs through almost the ENTIRE 62 s
+clip, not just around gunshots. **The full-depth model is not selectively
+gating loud events — it is applying a broad, near-constant, aggressive
+high-frequency rolloff for the whole recording,** and word loss is the
+predictable result of doing that to a band speech identity lives in. This
+also explains why the floor cap works as well as it does: capping
+suppression DEPTH uniformly is a reasonably well-matched fix for a
+uniformly-applied problem, not a event-detection problem.
+
+**Implication for item 1 (training objective):** this is not a "the model
+needs to detect transients better" problem — the transient detection isn't
+the mechanism. It is producing an over-aggressive mask across the whole
+signal, all the time, in exactly the band that matters. An ASR/word-loss
+term in training should therefore penalize broadband high-frequency
+suppression generally, not specifically penalize behavior at burst
+boundaries.
 
 ### 5. The two older decisions, still open
 
@@ -149,6 +326,19 @@ kept (with warnings in their docstrings) because the measurements are the result
 | `scripts/intelligibility.py` — consonant boost | Restores CVR to clean-speech parity (−16.8 → −10.9 dB) and still lowers word score. CVR is not intelligibility. |
 | Multiband upward compression | The textbook move, and wrong here. Lifts every quiet frame, and most quiet frames are pauses and vowel tails rather than consonants: CVR −19.65 → −22.92 dB. Removed from `intelligibility.py`; do not reintroduce without measuring CVR. |
 | Transient-weighted loss (earlier session) | No effect where intended (+0.05 dB on gunshot bursts, p = 0.72), significant cost elsewhere (PESQ −0.027, p < 0.001). `--w-transient` retained so the ablation is repeatable. |
+| Dynamic INT8 quantization of the ONNX model | 5.5% *slower* on this CPU (compute here is ONNX Runtime dispatch-bound across 445 graph nodes, not arithmetic-bound — quantizing adds dequant/quant nodes rather than removing work) and 7.3% RMS output error vs fp32. Not shipped; see `scripts/bench_edge.py`. |
+| NLMS/LMS/RLS reference-mic adaptive noise cancellation (`src/baselines/{nlms,lms,rls}.py`) | Every one of them makes real audio **worse than doing nothing**, and the ranking is the OPPOSITE of algorithmic sophistication: RLS (fastest, most complete convergence) is catastrophic, NLMS is bad, the "worst" algorithm — plain LMS with a conservative fixed step — does the *least* damage, purely because it adapts too slowly to fully exploit the problem below. Root cause: the (synthetic) reference-mic channel leaks some of the talker's own speech, and every one of these filters cannot distinguish "correlated because noise" from "correlated because leaked speech" — the more thoroughly an algorithm converges, the more speech it also removes. VAD-gated adaptation (the standard real-headset fix) does not help either in this regime: an energy-based VAD on the primary mic can't tell speech from noise when the noise is this loud and impulsive, so it freezes adaptation almost entirely and the result is indistinguishable from doing nothing. **Confirmed by real ASR word-recognition, not just PESQ/STOI** (whisper-medium, 26 known tokens, `results/asr_multimic.json`): unprocessed 62%, LMS ties it at 62%, NLMS drops to 54%, **RLS scores 0% — total destruction, every single word lost.** |
+| RNNoise / DeepFilterNet as drop-in replacements | Both are real, working, pretrained-weight integrations (not stubs — see `src/methods.py`), and both **also** lose to unprocessed on this project's audio (SI-SDR gain −32.8 dB and −9.4 dB respectively on the same clip NLMS/LMS/RLS were measured on). The checkpoint that wins on generic noise keeps losing to doing nothing on gunfire — this is now confirmed by four independent published/pretrained systems (RNNoise, DeepFilterNet, `gtcrn_vctk`, and classical Wiener/spectral-subtraction), not just this project's own model. |
+| NLMS + this project's own GTCRN in series (the "hybrid" architecture the DSP-frontend idea points toward) | ASR word score **4%**, worse than either failure alone (NLMS 54%, GTCRN-alone 54%) — stacking two degradations compounds rather than cancels. The GTCRN model alone, single-mic, on this same clip: ASR score **54%**, again below unprocessed's 62%, consistent with the project's central finding on a fourth independent recording. |
+
+All of the above are measured on ONE synthetic 45 s clip (`results/multimic_demo/`,
+real dry speech + real gunfire, not the frozen 720-clip testset) — see
+`results/method_comparison.md` for the full consolidated table (now including the
+ASR column) and `results/pareto_latency_quality.png` for the compute-cost-vs-PESQ
+plot. Single data point per method, but the direction (everything loses to
+unprocessed, confirmed by ASR not just PESQ/STOI) is now consistent across ten
+different methods spanning classical DSP, adaptive filtering, and three
+independent neural architectures.
 
 ---
 
@@ -198,24 +388,19 @@ earphones — the mic must hear it acoustically), and **leave ~10 s of gunfire
 before speaking** so a clean noise bed can be extracted.
 
 Verify any new recording before trusting a test built on it:
-```powershell
-& $PY scripts\asr_score.py --model medium --inputs your_dry_take.wav
+
+```bash
+$PY scripts/asr_score.py --model medium --inputs your_dry_take.wav
 ```
+
 A good dry take should score well above 70%. If it does not, fix the capture
 before anything else.
 
 ---
 
-## Environment: PyTorch is no longer blocked
+## Environment: PyTorch availability
 
-RESUME.md previously documented Windows Smart App Control blocking PyTorch's
-unsigned DLLs. **This is stale.** Torch 2.13.0+cu126 loads and trains normally on
-this machine, GPU included, even with the policy still reporting `1` (enforcing):
-
-```powershell
-(Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy" `
-  -Name VerifiedAndReputablePolicyState).VerifiedAndReputablePolicyState
-```
+Torch 2.13.0+cu126 loads and trains normally on this machine, GPU included.
 
 The torch-free inference split in `src/framing.py` remains correct and worth
 keeping — it is what lets a teammate run the model without a 2 GB CUDA download —
@@ -243,11 +428,28 @@ bound `S` to `src.framing` (NumPy-only, no `stft`/`istft`) while two tests calle
 | `src/stream_demo.py` | gained `--floor-db` (live and file paths) |
 | `src/losses.py` | gained `w_consonant` (1–4 kHz band term), default 0.0 |
 
+## Files added in the Linux-migration / multi-mic session
+
+| path | what |
+|---|---|
+| `main.py` | live mic→model→speaker entry point, wraps `src.stream_demo`, crash-proof fallback |
+| `requirements.txt` | grouped, version-pinned dependencies (core/training/metrics/baselines) |
+| `dhwanik.service`, `scripts/run_service.sh`, `dhwanik.env.example` | systemd **user** service — self-bootstraps `.venv`, installs deps only when `requirements.txt` changes, execs `main.py` |
+| `scripts/bench_edge.py` | torch-free latency/RTF benchmark, safe to copy to an actual embedded target |
+| `src/baselines/{nlms,lms,rls}.py`, `src/baselines/reference_mic.py` | reference-mic adaptive filters + synthetic second-channel model — see negative results above |
+| `scripts/eval_multimic.py` | builds the synthetic two-mic mixture, runs all DSP/neural/hybrid methods, scores them |
+| `scripts/_verify_new_baselines.py`, `src/methods.py` additions | RNNoise + DeepFilterNet, real pretrained weights (DeepFilterNet lives in an isolated `.venv-dfn` — numpy version conflict, see `requirements.txt`) |
+| `scripts/aggregate_results.py` | consolidates every method measured on the same clip into `results/method_comparison.md` + `results/pareto_latency_quality.png` |
+| `results/asr_multimic.json` | the ASR numbers in the table above |
+| `scripts/make_listening_test.py`, `test-result/listening_test_v2/` | replacement listening-test kit — the original `test-result/listening_test/TEST_A.wav` has no recorded provenance anywhere in this repo (checked against every real recording and floor-sweep variant, no match), so a score against it can't be interpreted. This version uses the take-3 floor-sweep files (known provenance), independently randomized per listener. **Caveat:** those source files are also what README's own demo section asks teammates to listen to, so a listener who's used this repo already isn't blind. |
+| `tests/test_nlms.py`, `tests/test_lms_rls.py`, `tests/test_streaming_safety.py` | 10 new tests, all passing (30/30 total, up from 19) |
+| `scripts/spectrogram_diff.py`, `results/spectrogram_diff.png` | answers "where to pick up" item 4 below — the suppression mechanism |
+
 ---
 
 ## Rebuilding from nothing
 
-```powershell
+```bash
 # 1. environment - see README.md "Full setup from scratch"
 # 2. data
 bash scripts/download_tier1.sh
@@ -263,8 +465,9 @@ group COUNTS it prints, not just that the assertions passed** — degenerate spl
 are trivially disjoint. Healthy output has `background val=80`, `babble val=21`.
 
 If you stop the pipeline mid-run, reap the workers:
-```powershell
-Get-Process python | Stop-Process -Force
+
+```bash
+pkill -f python
 ```
 
 ---
@@ -273,10 +476,10 @@ Get-Process python | Stop-Process -Force
 
 | what | where |
 |---|---|
-| code | `C:\dev\SIH-2026` |
-| venv | `C:\SIH26052_data\.venv` (Python 3.12, **not** 3.14) |
-| datasets | `C:\SIH26052_data\{raw,prepared}` (~64 GB) |
-| frozen test set | `C:\SIH26052_data\testset` |
-| VoiceBank-DEMAND | `C:\SIH26052_data\voicebank_demand` |
+| code | this repository |
+| venv | `.venv` at the repo root (Python 3.12, **not** 3.14) |
+| datasets | `~/SIH26052_data/{raw,prepared}` (~64 GB) |
+| frozen test set | `~/SIH26052_data/testset` |
+| VoiceBank-DEMAND | `~/SIH26052_data/voicebank_demand` |
 | real test recordings | `test-result/voice/` |
 | processed variants + scores | `test-result/` |

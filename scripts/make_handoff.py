@@ -79,7 +79,18 @@ def make_stub() -> Path:
     return path
 
 
+def _cache_shapes(onnx_path: Path) -> dict:
+    """Read the cache shapes from the graph being handed over, so the spec can
+    never disagree with the file it describes (they scale with model width)."""
+    import onnxruntime as ort
+    sess = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+    return {i.name: tuple(i.shape) for i in sess.get_inputs()}
+
+
 def spec_sheet(onnx_name: str) -> str:
+    shapes = _cache_shapes(OUT / onnx_name)
+    conv_s, tra_s, inter_s = (shapes["conv_cache"], shapes["tra_cache"],
+                              shapes["inter_cache"])
     bench = ROOT / "results" / "bench.json"
     b = json.loads(bench.read_text(encoding="utf-8")) if bench.exists() else None
     ver = ROOT / "results" / "onnx_verify.json"
@@ -138,9 +149,9 @@ must feed its output caches back in on the next call.
 | name | shape | dtype |
 |---|---|---|
 | `mix` | `(1, 257, 1, 2)` | float32 |
-| `conv_cache` | `{CONV_CACHE}` | float32 |
-| `tra_cache` | `{TRA_CACHE}` | float32 |
-| `inter_cache` | `{INTER_CACHE}` | float32 |
+| `conv_cache` | `{conv_s}` | float32 |
+| `tra_cache` | `{tra_s}` | float32 |
+| `inter_cache` | `{inter_s}` | float32 |
 
 `mix` is the STFT of one frame as `(batch, freq_bins, time=1, [real, imag])`.
 Initialise all three caches to **zeros** at stream start.
@@ -181,9 +192,12 @@ SR, N_FFT, HOP, WIN = 16000, 512, 256, 512
 MODEL = "model.onnx"
 
 sess = ort.InferenceSession(MODEL, providers=["CPUExecutionProvider"])
-conv_cache = np.zeros((2, 1, 16, 16, 33), dtype="float32")
-tra_cache = np.zeros((2, 3, 1, 1, 16), dtype="float32")
-inter_cache = np.zeros((2, 1, 33, 16), dtype="float32")
+# Cache shapes depend on the model's width - read them from the graph rather
+# than hardcoding them. All three start at zero.
+shapes = {i.name: i.shape for i in sess.get_inputs()}
+conv_cache = np.zeros(shapes["conv_cache"], dtype="float32")
+tra_cache = np.zeros(shapes["tra_cache"], dtype="float32")
+inter_cache = np.zeros(shapes["inter_cache"], dtype="float32")
 
 x, sr = sf.read("input.wav", dtype="float32")
 assert sr == SR and x.ndim == 1

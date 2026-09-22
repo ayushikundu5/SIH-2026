@@ -52,20 +52,58 @@ class StreamingEnhancer:
         so.inter_op_num_threads = threads
         self.sess = ort.InferenceSession(str(onnx_path), so,
                                          providers=["CPUExecutionProvider"])
+        # Cache shapes come from the graph itself, not from constants: they
+        # scale with the model's channel width, and the framing.py values are
+        # only correct for the upstream 16-wide model.
+        declared = {i.name: i.shape for i in self.sess.get_inputs()}
+        self.cache_shapes = {
+            k: tuple(declared[k]) if k in declared and all(isinstance(d, int) for d in declared[k])
+            else default
+            for k, default in (("conv_cache", CONV_CACHE), ("tra_cache", TRA_CACHE),
+                               ("inter_cache", INTER_CACHE))}
         self.window = (np.hanning(WIN) ** 0.5).astype(np.float32)
         self.floor_lin = None if floor_db is None else 10.0 ** (floor_db / 20.0)
         self.reset()
 
     def reset(self) -> None:
-        self.conv = np.zeros(CONV_CACHE, dtype="float32")
-        self.tra = np.zeros(TRA_CACHE, dtype="float32")
-        self.inter = np.zeros(INTER_CACHE, dtype="float32")
+        self.conv = np.zeros(self.cache_shapes["conv_cache"], dtype="float32")
+        self.tra = np.zeros(self.cache_shapes["tra_cache"], dtype="float32")
+        self.inter = np.zeros(self.cache_shapes["inter_cache"], dtype="float32")
         self.in_buf = np.zeros(WIN, dtype=np.float32)
         self.ola = np.zeros(WIN, dtype=np.float32)
         self.norm = np.zeros(WIN, dtype=np.float32)
         self.wsq = self.window ** 2
+        self.consecutive_failures = 0
 
     def process_chunk(self, chunk: np.ndarray) -> np.ndarray:
+        """Safe entry point: never raises, never emits non-finite audio.
+
+        This is what `run_live`/`main.py` call. An audio callback that raises
+        kills the whole stream, and one that returns NaN/Inf is worse - it
+        plays back as a loud, undocumented fault. Communication must continue
+        even if the model itself fails (crashed ORT session, corrupted cache,
+        unexpected input), so on ANY failure this resets internal state and
+        falls back to passing the raw chunk straight through - unprocessed,
+        not silence - exactly the fallback described in this project's own
+        failure-mode expectations (`docs/failure_modes.md`). The cost is a
+        brief re-convergence period after a fault, since the OLA/cache state
+        was zeroed; that is an acceptable trade against "the mic goes dead" or
+        "the output explodes".
+        """
+        try:
+            out = self._process_chunk_unsafe(chunk)
+        except Exception:  # noqa: BLE001 - any failure must degrade, not crash
+            self.reset()
+            self.consecutive_failures += 1
+            return np.clip(np.asarray(chunk, dtype=np.float32), -1.0, 1.0)
+        if not np.all(np.isfinite(out)):
+            self.reset()
+            self.consecutive_failures += 1
+            return np.clip(np.asarray(chunk, dtype=np.float32), -1.0, 1.0)
+        self.consecutive_failures = 0
+        return out
+
+    def _process_chunk_unsafe(self, chunk: np.ndarray) -> np.ndarray:
         """One HOP-sized chunk in, one HOP-sized enhanced chunk out."""
         assert len(chunk) == HOP, f"expected {HOP} samples, got {len(chunk)}"
         self.in_buf = np.concatenate([self.in_buf[HOP:], chunk.astype(np.float32)])

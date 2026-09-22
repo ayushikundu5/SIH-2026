@@ -48,7 +48,7 @@ run on ONNX Runtime.
 
 ### Install
 
-```powershell
+```bash
 git clone https://github.com/ayushikundu5/SIH-2026.git
 cd SIH-2026
 pip install numpy soundfile soxr onnxruntime sounddevice
@@ -59,10 +59,14 @@ That is everything needed for steps 1–3 below. (PyTorch is only for retraining
 
 ### 1. Hear the showcase demo — 2 min
 
-```powershell
-(New-Object Media.SoundPlayer "results\demo60\before.wav").PlaySync()
-(New-Object Media.SoundPlayer "results\demo60\after.wav").PlaySync()
+```bash
+aplay results/demo60/before.wav
+aplay results/demo60/after.wav
 ```
+
+(`aplay` is ALSA and usually preinstalled; if it's missing or the file won't
+play, use `paplay` (PulseAudio) or
+`ffplay -nodisp -autoexit -loglevel quiet <file>` instead.)
 
 Voice + engine + 10 gunshots, then the same clip cleaned. This is synthetic and
 it is the model at its best.
@@ -72,13 +76,13 @@ it is the model at its best.
 Real recording, real microphone, gunfire from a speaker in the room. All three
 are level-matched, so judge **clarity, not loudness**:
 
-```powershell
-foreach ($f in @(
- @("UNPROCESSED - raw microphone","floor_none_unprocessed"),
- @("MODEL, capped at -18 dB","floor_18dB"),
- @("MODEL, full suppression","floor_full_model"))) {
-  Write-Host "`n$($f[0])" -ForegroundColor Cyan
-  (New-Object Media.SoundPlayer "test-result\floors\$($f[1]).wav").PlaySync() }
+```bash
+labels=("UNPROCESSED - raw microphone" "MODEL, capped at -18 dB" "MODEL, full suppression")
+files=("floor_none_unprocessed" "floor_18dB" "floor_full_model")
+for i in "${!files[@]}"; do
+  echo -e "\n${labels[$i]}"
+  aplay "test-result/floors/${files[$i]}.wav"
+done
 ```
 
 The speaker reads the phonetic alphabet (Alpha, Bravo, Charlie…), digits 1–9 and
@@ -95,9 +99,9 @@ that, because a speech recogniser is not an ear.
 **Do not pick a Bluetooth headset as the input** — in call mode it destroys every
 consonant before the model sees anything.
 
-```powershell
+```bash
 python -m src.stream_demo --list     # note your mic and headphone indices
-python -m src.stream_demo --live --onnx artifacts\model_lowsnr_simple.onnx `
+python -m src.stream_demo --live --onnx artifacts/model_lowsnr_simple.onnx \
        --floor-db -18 --in-device 1 --out-device 4
 ```
 
@@ -109,9 +113,9 @@ bug.
 
 ### 4. Optional — score it automatically
 
-```powershell
+```bash
 pip install faster-whisper jiwer
-python scripts\asr_score.py --model medium --inputs test-result\floors\floor_18dB.wav
+python scripts/asr_score.py --model medium --inputs test-result/floors/floor_18dB.wav
 ```
 
 First run downloads ~1.5 GB. Anything flagged `DECODER GLITCH` is not a
@@ -248,7 +252,7 @@ There are two very different levels of setup. Pick the one you need.
 model is committed to this repo and runs on ONNX Runtime. This is enough to hear
 it work, demo it, and run it on your own recordings.
 
-```powershell
+```bash
 git clone https://github.com/ayushikundu5/SIH-2026.git
 cd SIH-2026
 
@@ -256,15 +260,15 @@ cd SIH-2026
 pip install numpy soundfile soxr onnxruntime sounddevice pyyaml
 
 # listen to the 60-second demo that is already in the repo
-cd results\demo60
-start before.wav
-start after.wav
+cd results/demo60
+aplay before.wav
+aplay after.wav
 ```
 
 Then run it on your own audio, or live from your microphone:
 
-```powershell
-python -m src.stream_demo --file yourfile.wav --onnx artifacts\model_simple.onnx
+```bash
+python -m src.stream_demo --file yourfile.wav --onnx artifacts/model_simple.onnx
 python -m src.stream_demo --live      # WEAR HEADPHONES or it feeds back
 ```
 
@@ -274,18 +278,19 @@ Only needed if you are changing the model or regenerating results. See
 [Full setup from scratch](#full-setup-from-scratch) and
 [Reproducing everything](#reproducing-everything).
 
-**Use the same absolute paths as the original machine and nothing needs editing:**
+**Use the same paths as the original machine and nothing needs editing:**
 
 ```
-C:\SIH26052_data\.venv     the virtualenv
-C:\SIH26052_data\raw       downloaded corpora
-C:\SIH26052_data\prepared  16 kHz conversions
-C:\SIH26052_data\testset   frozen evaluation set
+.venv                          the virtualenv, at the repo root
+~/SIH26052_data/raw            downloaded corpora
+~/SIH26052_data/prepared       16 kHz conversions
+~/SIH26052_data/testset        frozen evaluation set
 ```
 
-If you use different paths, edit the four lines that reference them:
-`configs/data.yaml` (3 lines: `raw`, `prepared`, `testset`) and `run.ps1`
-(1 line: `$PY`).
+If you use different paths, edit the three lines that reference them in
+`configs/data.yaml` (`raw`, `prepared`, `testset`); the venv path is picked up
+by `run.sh` via `$SIH_PY` (defaults to `.venv/bin/python`), so point that
+environment variable elsewhere instead of editing the script.
 
 Downloads total **~32 GB** and take several hours. They are resumable — re-run
 the same script if interrupted, and it continues rather than restarting.
@@ -298,10 +303,10 @@ The shipped model runs through **ONNX Runtime only**. No GPU, no PyTorch needed.
 
 ### 1. Listen to the 60-second demo
 
-```powershell
-cd results\demo60
-start before.wav      # voice + engine + 10 gunshots
-start after.wav       # same clip, cleaned
+```bash
+cd results/demo60
+aplay before.wav      # voice + engine + 10 gunshots
+aplay after.wav       # same clip, cleaned
 ```
 
 Gunshots occur at **20.4, 25.5, 29.9, 32.9, 35.2, 39.6, 44.4, 48.3, 53.4, 56.0 s**.
@@ -312,16 +317,16 @@ SI-SDR **6.3 → 13.0 dB**.
 
 ### 2. Run it on your own audio
 
-```powershell
-$PY = "C:\SIH26052_data\.venv\Scripts\python.exe"
+```bash
+PY=.venv/bin/python
 
 # current best: low-SNR model with the suppression cap
-& $PY -m src.stream_demo --file path\to\your.wav `
-      --onnx artifacts\model_lowsnr_simple.onnx --floor-db -18
-# writes results\demo\before.wav and results\demo\after.wav
+$PY -m src.stream_demo --file path/to/your.wav \
+    --onnx artifacts/model_lowsnr_simple.onnx --floor-db -18
+# writes results/demo/before.wav and results/demo/after.wav
 
 # the original shipped model, for comparison
-& $PY -m src.stream_demo --file path\to\your.wav --onnx artifacts\model_simple.onnx
+$PY -m src.stream_demo --file path/to/your.wav --onnx artifacts/model_simple.onnx
 ```
 
 See [Testing it live](#testing-it-live-from-your-microphone) for full device
@@ -329,9 +334,9 @@ setup and what to listen for.
 
 ### 3. Live microphone
 
-```powershell
-& $PY -m src.stream_demo --list     # list audio devices
-& $PY -m src.stream_demo --live     # speak, clap, bang the desk; Ctrl+C to stop
+```bash
+$PY -m src.stream_demo --list     # list audio devices
+$PY -m src.stream_demo --live     # speak, clap, bang the desk; Ctrl+C to stop
 ```
 
 **Wear headphones** or the microphone will pick up the speakers and feed back.
@@ -340,8 +345,8 @@ carried forward — so it is the same code path the hardware team will run.
 
 ### 4. Regenerate the demo
 
-```powershell
-& $PY scripts\make_demo.py           # rebuilds results\demo60\ from held-out data
+```bash
+$PY scripts/make_demo.py             # rebuilds results/demo60/ from held-out data
 ```
 
 ---
@@ -353,10 +358,11 @@ All the `test-result/` clips are **level-matched to −20 dBFS**, so you are
 comparing clarity and not volume.
 
 Play any file with:
-```powershell
-(New-Object Media.SoundPlayer "C:\dev\SIH-2026\<path>").PlaySync()
+
+```bash
+aplay ~/SIH-2026/<path>
 ```
-or `start <path>` to open it in your default player.
+or `xdg-open <path>` to open it in your default player.
 
 ### 1. The showcase demo — 60 s, synthetic, this is the one for a slide deck
 
@@ -374,10 +380,12 @@ Measured: PESQ **1.40 → 2.19**, STOI **0.91 → 0.95**, SI-SDR **6.3 → 13.0 
 Built from held-out test material and processed through the **shipped ONNX**, one
 16 ms frame at a time — not an offline approximation that happens to sound good.
 
-```powershell
-cd C:\dev\SIH-2026; foreach ($f in @("before","after","reference_clean")) {
-  Write-Host "`n$f" -ForegroundColor Cyan
-  (New-Object Media.SoundPlayer "results\demo60\$f.wav").PlaySync() }
+```bash
+cd ~/SIH-2026
+for f in before after reference_clean; do
+  echo -e "\n$f"
+  aplay "results/demo60/$f.wav"
+done
 ```
 
 ### 2. Real recordings — the honest test
@@ -410,13 +418,14 @@ region**. This is why the capture chain is documented so heavily in `RESUME.md`.
 | `floor_24dB.wav` | 19.2 dB | — |
 | `floor_full_model.wav` | 27.5 dB | 69% |
 
-```powershell
-cd C:\dev\SIH-2026; foreach ($f in @(
- @("unprocessed","floor_none_unprocessed"),
- @("floor -18 dB","floor_18dB"),
- @("full model","floor_full_model"))) {
-  Write-Host "`n$($f[0])" -ForegroundColor Cyan
-  (New-Object Media.SoundPlayer "test-result\floors\$($f[1]).wav").PlaySync() }
+```bash
+cd ~/SIH-2026
+labels=("unprocessed" "floor -18 dB" "full model")
+files=("floor_none_unprocessed" "floor_18dB" "floor_full_model")
+for i in "${!files[@]}"; do
+  echo -e "\n${labels[$i]}"
+  aplay "test-result/floors/${files[$i]}.wav"
+done
 ```
 
 Listen for whether you can write down the phonetic alphabet, not for whether the
@@ -428,10 +437,12 @@ gunfire is gone — it will be, in all of them.
 with real PESQ/STOI against the clean reference. Files named
 `m<muffle>_snr<SNR>_{before,after}.wav`, e.g. `m8_snr5_after.wav`.
 
-```powershell
-cd C:\dev\SIH-2026; foreach ($s in @("15","10","5","0","m5")) {
-  Write-Host "`n=== SNR $s dB ===" -ForegroundColor Cyan
-  (New-Object Media.SoundPlayer "test-result\envelope2\m8_snr${s}_after.wav").PlaySync() }
+```bash
+cd ~/SIH-2026
+for s in 15 10 5 0 m5; do
+  echo -e "\n=== SNR $s dB ==="
+  aplay "test-result/envelope2/m8_snr${s}_after.wav"
+done
 ```
 
 > **Not every folder below is committed.** The source recordings in
@@ -478,27 +489,27 @@ caches carried forward — so it is the same code the hardware team will run.
 
 ### List your devices
 
-```powershell
-$PY = "C:\SIH26052_data\.venv\Scripts\python.exe"
-& $PY -m src.stream_demo --list
+```bash
+PY=.venv/bin/python
+$PY -m src.stream_demo --list
 ```
 
 Note the index of your microphone (input) and your headphones (output).
 
 ### Run it
 
-```powershell
+```bash
 # A - current best: low-SNR model with the suppression cap
-& $PY -m src.stream_demo --live --onnx artifacts\model_lowsnr_simple.onnx `
-      --floor-db -18 --in-device 1 --out-device 4
+$PY -m src.stream_demo --live --onnx artifacts/model_lowsnr_simple.onnx \
+    --floor-db -18 --in-device 1 --out-device 4
 
 # B - same model, no cap: maximum suppression, fewest words
-& $PY -m src.stream_demo --live --onnx artifacts\model_lowsnr_simple.onnx `
-      --in-device 1 --out-device 4
+$PY -m src.stream_demo --live --onnx artifacts/model_lowsnr_simple.onnx \
+    --in-device 1 --out-device 4
 
 # C - the original shipped model, for comparison
-& $PY -m src.stream_demo --live --onnx artifacts\model_simple.onnx `
-      --in-device 1 --out-device 4
+$PY -m src.stream_demo --live --onnx artifacts/model_simple.onnx \
+    --in-device 1 --out-device 4
 ```
 
 Ctrl+C to stop. An input level meter prints as it runs. Substitute your own
@@ -510,13 +521,13 @@ tradeoff in one test.
 
 ### Run it on a file instead
 
-```powershell
-& $PY -m src.stream_demo --file yourfile.wav --onnx artifacts\model_lowsnr_simple.onnx `
-      --floor-db -18 --out-dir results\demo
-# writes results\demo\before.wav and after.wav
+```bash
+$PY -m src.stream_demo --file yourfile.wav --onnx artifacts/model_lowsnr_simple.onnx \
+    --floor-db -18 --out-dir results/demo
+# writes results/demo/before.wav and after.wav
 
 # then score the words - no listeners needed
-& $PY scripts\asr_score.py --model medium --inputs results\demo\before.wav results\demo\after.wav
+$PY scripts/asr_score.py --model medium --inputs results/demo/before.wav results/demo/after.wav
 ```
 
 Input must be **16 kHz mono WAV**. Expect `RTF ≈ 0.29`.
@@ -527,43 +538,36 @@ Input must be **16 kHz mono WAV**. Expect `RTF ≈ 0.29`.
 
 ### Prerequisites
 
-```powershell
+```bash
 # Python 3.12 — NOT 3.14. PyTorch ships CPU-only wheels for 3.14, so on 3.14 the
 # GPU sits idle and training is roughly 50x slower with no error message.
-winget install --id Python.Python.3.12 --scope user
+sudo apt install python3.12 python3.12-venv
+# if your distro's repos don't have python3.12:
+# sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt install python3.12 python3.12-venv
 
-# Virtualenv, deliberately OUTSIDE any cloud-synced folder
-& "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe" -m venv C:\SIH26052_data\.venv
-$PY = "C:\SIH26052_data\.venv\Scripts\python.exe"
+# Virtualenv, at the repo root (matches run.sh's default $SIH_PY)
+python3.12 -m venv .venv
+PY=.venv/bin/python
 
 # PyTorch with CUDA. Only needed for TRAINING and EXPORT — not for running the model.
-& $PY -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu126
+$PY -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu126
 
-& $PY -m pip install numpy scipy soundfile soxr librosa pystoi onnx onnxruntime `
-                     onnxscript onnxsim einops sounddevice pyyaml tqdm matplotlib `
-                     pandas pytest
+$PY -m pip install numpy scipy soundfile soxr librosa pystoi onnx onnxruntime \
+                    onnxscript onnxsim einops sounddevice pyyaml tqdm matplotlib \
+                    pandas pytest
+# or simply: $PY -m pip install -r requirements.txt
 ```
 
-Verify CUDA: `& $PY -c "import torch; print(torch.cuda.is_available())"` → must print `True`.
+Verify CUDA: `$PY -c "import torch; print(torch.cuda.is_available())"` → must print `True`.
 
 ### PESQ needs a C compiler
 
-`pesq` is the ITU-T P.862 reference implementation and has no cp312 Windows
-wheel, so it builds from source:
+`pesq` is the ITU-T P.862 reference implementation and builds from source; it
+builds cleanly against gcc with nothing beyond `build-essential`:
 
-```powershell
-winget install --id Microsoft.VisualStudio.2022.BuildTools `
-  --override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
-& $PY -m pip install pesq
-```
-
-If that still fails with *"Microsoft Visual C++ 14.0 or greater is required"*
-even after the build tools install, `vswhere` has not registered the toolchain.
-Build against the environment directly:
-
-```powershell
-$vcvars = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
-cmd /c "call `"$vcvars`" && set DISTUTILS_USE_SDK=1 && set MSSdk=1 && `"$PY`" -m pip install pesq"
+```bash
+sudo apt install build-essential
+$PY -m pip install pesq
 ```
 
 ### Vendored upstream code
@@ -577,10 +581,10 @@ cmd /c "call `"$vcvars`" && set DISTUTILS_USE_SDK=1 && set MSSdk=1 && `"$PY`" -m
 
 ## Reproducing everything
 
-Datasets live at `C:\SIH26052_data` — **~64 GB**, deliberately outside the repo.
+Datasets live at `~/SIH26052_data` — **~64 GB**, deliberately outside the repo.
 They are fully reproducible from the scripts here.
 
-```powershell
+```bash
 bash scripts/download_tier1.sh          # LibriSpeech, MUSAN, RIRs, ESC-50   (~24 GB)
 bash scripts/download_transients.sh     # firearm corpus, UrbanSound8K       (~8 GB)
 ```
@@ -589,33 +593,33 @@ VoiceBank-DEMAND needs the content-validating fetcher, because
 `datashare.ed.ac.uk` answers HEAD with a ~4 KB HTML interstitial and a
 size-based check will happily declare a 10%-downloaded file complete:
 
-```powershell
-bash scripts/fetch_zip_until_valid.sh `
-  "https://datashare.ed.ac.uk/bitstream/handle/10283/2791/clean_testset_wav.zip" `
-  /c/SIH26052_data/raw/vbd_clean_testset.zip
-bash scripts/fetch_zip_until_valid.sh `
-  "https://datashare.ed.ac.uk/bitstream/handle/10283/2791/noisy_testset_wav.zip" `
-  /c/SIH26052_data/raw/vbd_noisy_testset.zip
+```bash
+bash scripts/fetch_zip_until_valid.sh \
+  "https://datashare.ed.ac.uk/bitstream/handle/10283/2791/clean_testset_wav.zip" \
+  ~/SIH26052_data/raw/vbd_clean_testset.zip
+bash scripts/fetch_zip_until_valid.sh \
+  "https://datashare.ed.ac.uk/bitstream/handle/10283/2791/noisy_testset_wav.zip" \
+  ~/SIH26052_data/raw/vbd_noisy_testset.zip
 ```
 
 Then the whole pipeline — resumable, skips completed work, aborts rather than
 running a later stage on bad inputs:
 
-```powershell
+```bash
 bash scripts/auto_pipeline.sh
 ```
 
 Or stage by stage:
 
-```powershell
-.\run.ps1 status      # what is downloaded / built so far
-.\run.ps1 data        # extract + resample + manifests + mixture QA
-.\run.ps1 testset     # freeze evaluation set + VoiceBank-DEMAND benchmark
-.\run.ps1 baseline    # comparison table — RUN BEFORE TRAINING
-.\run.ps1 train       # fine-tune (~2.2 h on an RTX 3050)
-.\run.ps1 ablate      # identical run, transient loss term disabled
-.\run.ps1 finish      # evaluate + bench + export + handoff bundle
-.\run.ps1 test        # unit tests
+```bash
+./run.sh status      # what is downloaded / built so far
+./run.sh data        # extract + resample + manifests + mixture QA
+./run.sh testset     # freeze evaluation set + VoiceBank-DEMAND benchmark
+./run.sh baseline    # comparison table — RUN BEFORE TRAINING
+./run.sh train       # fine-tune (~2.2 h on an RTX 3050)
+./run.sh ablate      # identical run, transient loss term disabled
+./run.sh finish      # evaluate + bench + export + handoff bundle
+./run.sh test        # unit tests
 ```
 
 ---
@@ -638,15 +642,14 @@ bound `S` to `src.framing`, which is NumPy-only and has no `stft`/`istft`, while
 they called `S.stft`. They raised `AttributeError` whenever PyTorch was present.
 Fixed; the suite now genuinely reports `19 passed`.
 
+```bash
+PY=.venv/bin/python
 
-```powershell
-$PY = "C:\SIH26052_data\.venv\Scripts\python.exe"
-
-& $PY -m pytest tests -q                                              # all
-& $PY -m pytest tests -q -v                                           # verbose
-& $PY -m pytest tests/test_core.py::test_wola_roundtrip_is_exact -q   # single test
-& $PY -m pytest tests -q -k mixer                                     # by keyword
-& $PY -m pytest tests -q -x                                           # stop at first failure
+$PY -m pytest tests -q                                              # all
+$PY -m pytest tests -q -v                                           # verbose
+$PY -m pytest tests/test_core.py::test_wola_roundtrip_is_exact -q   # single test
+$PY -m pytest tests -q -k mixer                                     # by keyword
+$PY -m pytest tests -q -x                                           # stop at first failure
 ```
 
 These pin down the things that **fail silently** rather than raising: STFT
@@ -656,32 +659,32 @@ and that SI-SDR is genuinely scale-invariant.
 
 ### Fast end-to-end checks (each under a minute)
 
-```powershell
+```bash
 # data → loss → backward, with real data; catches shape/device/NaN problems
-& $PY scripts\smoke_train.py --steps 20 --batch 24 --workers 8
+$PY scripts/smoke_train.py --steps 20 --batch 24 --workers 8
 
 # the full trainer, two tiny epochs — exercises scheduler, validation, checkpointing
-& $PY -m src.train --tag smoke --epochs 2 --epoch-size 480 --val-size 96
+$PY -m src.train --tag smoke --epochs 2 --epoch-size 480 --val-size 96
 
 # render mixtures AND check them (mask coverage + burst prominence)
-& $PY scripts\qa_mixtures.py --n 24
+$PY scripts/qa_mixtures.py --n 24
 
 # evaluate a few methods on a subset
-& $PY -m src.evaluate --methods unprocessed wiener gtcrn_dns3 --limit 40
+$PY -m src.evaluate --methods unprocessed wiener gtcrn_dns3 --limit 40
 
 # latency + RTF — run on an IDLE machine, background load inflates it
-& $PY -m src.bench --onnx artifacts\model_simple.onnx
+$PY -m src.bench --onnx artifacts/model_simple.onnx
 
 # verify the shipped ONNX still matches the offline model
-& $PY -m src.export_onnx --ckpt checkpoints\shipped_best.pt --out artifacts\model.onnx
+$PY -m src.export_onnx --ckpt checkpoints/shipped_best.pt --out artifacts/model.onnx
 ```
 
 ### Evaluating a specific checkpoint
 
-```powershell
-& $PY -m src.evaluate --methods "gtcrn:checkpoints/shipped_best.pt" --tag mine
-& $PY -m src.evaluate --testset C:\SIH26052_data\voicebank_demand `
-      --methods unprocessed gtcrn_vctk --tag vbd
+```bash
+$PY -m src.evaluate --methods "gtcrn:checkpoints/shipped_best.pt" --tag mine
+$PY -m src.evaluate --testset ~/SIH26052_data/voicebank_demand \
+    --methods unprocessed gtcrn_vctk --tag vbd
 ```
 
 Method names accepted: `unprocessed`, `wiener`, `specsub`, `noisereduce`,

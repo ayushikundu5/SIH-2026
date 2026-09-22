@@ -37,7 +37,13 @@ from src import metrics as M        # noqa: E402
 
 # Targets from the problem statement, carried here so the table can mark
 # pass/fail directly rather than leaving the reader to compare by eye.
-TARGETS = {"snr_gain": 15.0, "stoi": 0.85, "pesq": 2.5, "rtf": 0.5}
+#
+# The statement says "SNR > 15 dB" next to STOI and PESQ, which are both
+# absolute OUTPUT scores - so "output SNR > 15 dB" is one natural reading, and
+# "SNR improvement > 15 dB" the other, much stricter one. Both are scored and
+# labelled; neither is silently substituted for the other. PESQ pass/fail is
+# always the WIDEBAND score.
+TARGETS = {"snr": 15.0, "snr_gain": 15.0, "stoi": 0.85, "pesq": 2.5, "rtf": 0.5}
 
 
 def _git_rev() -> str:
@@ -49,60 +55,77 @@ def _git_rev() -> str:
         return "unknown"
 
 
+def _eval_item(name: str, testset: Path, device: str, it: dict, sr: int,
+               ref: dict | None) -> tuple[dict, dict]:
+    """One clip, one method. Top-level so worker processes can import it."""
+    fn = MET.get(name, device=device)
+    noisy = A.load_audio(testset / it["noisy"], sr)
+    clean = A.load_audio(testset / it["clean"], sr)
+
+    t0 = time.perf_counter()
+    enh = fn(noisy, sr)
+    dt = time.perf_counter() - t0
+
+    # Unprocessed-clip metrics depend only on the clip, so they are shared
+    # across every method in the sweep rather than recomputed each time.
+    if ref is None:
+        ref = M.reference_metrics(clean, noisy, sr)
+    r = M.evaluate_pair(clean, noisy, enh, sr, ref=ref)
+
+    # Burst-local metrics: the whole-clip score is diluted by the ~88% of a
+    # clip that contains no gunfire, so it can look healthy while the
+    # gunshots themselves are untouched.
+    if it.get("mask"):
+        mpath = testset / it["mask"]
+        if mpath.exists():
+            r.update(M.masked_metrics(clean, noisy, enh,
+                                      np.load(mpath)["mask"]))
+
+    r.update({
+        "method": name, "id": it["id"], "category": it["category"],
+        "speaker": it.get("speaker"), "bg_snr_db": it.get("bg_snr_db"),
+        "n_events": it.get("n_events", 0), "reverb": it.get("reverb"),
+        "proc_s": dt, "rtf": dt / (len(noisy) / sr),
+    })
+    return r, ref
+
+
 def evaluate_method(name: str, testset: Path, device: str = "cpu",
                     limit: int | None = None,
-                    ref_cache: dict | None = None) -> pd.DataFrame:
+                    ref_cache: dict | None = None,
+                    workers: int = 1) -> pd.DataFrame:
     with open(testset / "index.json", encoding="utf-8") as f:
         index = json.load(f)
     items = index["items"][:limit] if limit else index["items"]
-    fn = MET.get(name, device=device)
+    MET.get(name, device=device)          # fail fast on a bad name/path
     sr = index["sr"]
+    cache = ref_cache if ref_cache is not None else {}
 
     rows = []
-    for it in tqdm(items, desc=f"{name:22s}", ncols=88, unit="clip"):
-        noisy = A.load_audio(testset / it["noisy"], sr)
-        clean = A.load_audio(testset / it["clean"], sr)
-
-        t0 = time.perf_counter()
-        enh = fn(noisy, sr)
-        dt = time.perf_counter() - t0
-
-        # Unprocessed-clip metrics depend only on the clip, so they are shared
-        # across every method in the sweep rather than recomputed each time.
-        if ref_cache is None:
-            ref = None
-        elif it["id"] in ref_cache:
-            ref = ref_cache[it["id"]]
-        else:
-            ref = M.reference_metrics(clean, noisy, sr)
-            ref_cache[it["id"]] = ref
-
-        r = M.evaluate_pair(clean, noisy, enh, sr, ref=ref)
-
-        # Burst-local metrics: the whole-clip score is diluted by the ~88% of a
-        # clip that contains no gunfire, so it can look healthy while the
-        # gunshots themselves are untouched.
-        if it.get("mask"):
-            mpath = testset / it["mask"]
-            if mpath.exists():
-                r.update(M.masked_metrics(clean, noisy, enh,
-                                          np.load(mpath)["mask"]))
-
-        r.update({
-            "method": name, "id": it["id"], "category": it["category"],
-            "speaker": it.get("speaker"), "bg_snr_db": it.get("bg_snr_db"),
-            "n_events": it.get("n_events", 0), "reverb": it.get("reverb"),
-            "proc_s": dt, "rtf": dt / (len(noisy) / sr),
-        })
-        rows.append(r)
+    if workers <= 1:
+        for it in tqdm(items, desc=f"{name:22s}", ncols=88, unit="clip"):
+            r, ref = _eval_item(name, testset, device, it, sr, cache.get(it["id"]))
+            cache[it["id"]] = ref
+            rows.append(r)
+    else:
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(max_workers=workers) as ex:
+            futs = [ex.submit(_eval_item, name, testset, device, it, sr,
+                              cache.get(it["id"])) for it in items]
+            for it, fu in tqdm(zip(items, futs), total=len(items),
+                               desc=f"{name:22s}", ncols=88, unit="clip"):
+                r, ref = fu.result()
+                cache[it["id"]] = ref
+                rows.append(r)
     return pd.DataFrame(rows)
 
 
 def aggregate(df: pd.DataFrame) -> pd.DataFrame:
     cols = ["pesq", "stoi", "estoi", "si_sdr", "snr", "segsnr",
             "snr_gain", "si_sdr_gain", "pesq_gain", "stoi_gain", "rtf"]
-    cols += [c for c in ("burst_si_sdr_gain", "burst_snr_gain", "burst_frac")
-             if c in df.columns]
+    # pesq_nb is absent from per-clip files written before it existed.
+    cols += [c for c in ("pesq_nb", "pesq_nb_gain", "burst_si_sdr_gain",
+                         "burst_snr_gain", "burst_frac") if c in df.columns]
     g = (df.groupby(["method", "category"])[cols]
            .agg(["mean", "std", "count"]))
     g.columns = [f"{a}_{b}" for a, b in g.columns]
@@ -133,23 +156,54 @@ def _fmt_table(agg: pd.DataFrame) -> str:
                         f"{r['si_sdr_gain_mean']:+.2f} | "
                         f"{100*r['burst_frac_mean']:.1f}% |")
 
+    has_nb = "pesq_nb_mean" in agg.columns
     for cat in sorted(agg["category"].unique()):
         sub = agg[agg["category"] == cat]
         lines.append(f"\n### {cat}\n")
-        lines.append("| method | PESQ | STOI | SI-SDR gain | SNR gain | RTF | meets targets |")
-        lines.append("|---|---|---|---|---|---|---|")
+        lines.append("| method | PESQ-WB | PESQ-NB | STOI | SI-SDR gain | output SNR "
+                     "| SNR gain | RTF | meets targets |")
+        lines.append("|---|---|---|---|---|---|---|---|---|")
         for _, r in sub.iterrows():
             ok = []
             if not np.isnan(r["pesq_mean"]):
                 ok.append(("PESQ", r["pesq_mean"] >= TARGETS["pesq"]))
             ok.append(("STOI", r["stoi_mean"] >= TARGETS["stoi"]))
-            ok.append(("SNRg", r["snr_gain_mean"] >= TARGETS["snr_gain"]))
+            ok.append(("SNRout", r["snr_mean"] >= TARGETS["snr"]))
+            ok.append(("SNRgain", r["snr_gain_mean"] >= TARGETS["snr_gain"]))
             ok.append(("RTF", r["rtf_mean"] <= TARGETS["rtf"]))
             flag = " ".join(f"{k}{'PASS' if v else 'FAIL'}" for k, v in ok)
+            nb = r["pesq_nb_mean"] if has_nb else float("nan")
             lines.append(
-                f"| `{r['method']}` | {r['pesq_mean']:.3f} | {r['stoi_mean']:.3f} "
-                f"| {r['si_sdr_gain_mean']:+.2f} | {r['snr_gain_mean']:+.2f} "
+                f"| `{r['method']}` | {r['pesq_mean']:.3f} | "
+                f"{'-' if np.isnan(nb) else f'{nb:.3f}'} | {r['stoi_mean']:.3f} "
+                f"| {r['si_sdr_gain_mean']:+.2f} | {r['snr_mean']:+.2f} "
+                f"| {r['snr_gain_mean']:+.2f} "
                 f"| {r['rtf_mean']:.4f} | {flag} |")
+    return "\n".join(lines)
+
+
+def _fmt_band_table(df: pd.DataFrame) -> str:
+    """Every target metric, stratified by INPUT SNR.
+
+    The test set spans roughly -8 to +17 dB input SNR, and every metric here
+    depends strongly on where in that range a clip starts. A single mean over
+    the whole range says as much about how the test set was drawn as about the
+    method, so the per-category tables above are paired with this one.
+    """
+    d = df.copy()
+    d["in_snr"] = pd.cut(d["snr_noisy"], SNR_BINS, labels=SNR_LABELS)
+    has_nb = "pesq_nb" in d.columns
+    lines = ["\n## All targets by INPUT SNR (all categories pooled)\n",
+             "| method | input SNR | n | PESQ-WB | PESQ-NB | STOI | output SNR | SNR gain |",
+             "|---|---|---|---|---|---|---|---|"]
+    for m in sorted(d["method"].unique()):
+        sub = d[d["method"] == m]
+        for band, g in sub.groupby("in_snr", observed=True):
+            nb = g["pesq_nb"].mean() if has_nb else float("nan")
+            lines.append(
+                f"| `{m}` | {band} dB | {len(g)} | {g['pesq'].mean():.3f} | "
+                f"{'-' if np.isnan(nb) else f'{nb:.3f}'} | {g['stoi'].mean():.3f} | "
+                f"{g['snr'].mean():+.2f} | {g['snr_gain'].mean():+.2f} |")
     return "\n".join(lines)
 
 
@@ -193,6 +247,9 @@ def main() -> None:
                     help="cpu is the honest setting: the target is an embedded chip")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--tag", default="")
+    ap.add_argument("--workers", type=int, default=1,
+                    help="parallel clip workers. >1 makes the RTF column a load "
+                         "figure, not a benchmark - use src/bench.py for that")
     ap.add_argument("--testset", default=None,
                     help="override the frozen test set (e.g. the "
                          "VoiceBank-DEMAND benchmark directory)")
@@ -200,7 +257,7 @@ def main() -> None:
 
     with open(ROOT / "configs" / "data.yaml") as f:
         cfg = yaml.safe_load(f)
-    testset = Path(a.testset) if a.testset else Path(cfg["paths"]["testset"])
+    testset = Path(A.local_path(a.testset or cfg["paths"]["testset"]))
     if not (testset / "index.json").exists():
         raise SystemExit(f"no frozen test set at {testset} - "
                          "run scripts/make_testset.py first")
@@ -210,7 +267,8 @@ def main() -> None:
 
     frames, ref_cache = [], {}
     for name in a.methods:
-        frames.append(evaluate_method(name, testset, a.device, a.limit, ref_cache))
+        frames.append(evaluate_method(name, testset, a.device, a.limit,
+                                      ref_cache, a.workers))
     df = pd.concat(frames, ignore_index=True)
 
     if not M.PESQ_AVAILABLE:
@@ -240,15 +298,19 @@ def main() -> None:
         f"{json.load(open(testset / 'index.json', encoding='utf-8'))['seed']})\n"
         f"- device: `{a.device}`\n"
         f"- PESQ available: {M.PESQ_AVAILABLE}\n"
-        f"- clips: {len(df) // max(df['method'].nunique(), 1)} per method\n\n"
-        f"Targets: SNR gain > {TARGETS['snr_gain']} dB, STOI > {TARGETS['stoi']}, "
-        f"PESQ > {TARGETS['pesq']}, RTF < {TARGETS['rtf']}.\n"
+        f"- clips: {len(df) // max(df['method'].nunique(), 1)} per method\n"
+        f"- eval workers: {a.workers}"
+        f"{' (RTF column is under parallel load - see results/bench.json)' if a.workers > 1 else ''}\n\n"
+        f"Targets: PESQ > {TARGETS['pesq']} (scored on WIDEBAND PESQ; narrowband "
+        f"shown for reference), STOI > {TARGETS['stoi']}, SNR > {TARGETS['snr']} dB "
+        f"(scored both as OUTPUT SNR and as SNR GAIN), RTF < {TARGETS['rtf']}.\n"
     )
-    md.write_text(header + _fmt_table(agg) + "\n" + _fmt_snr_table(df),
-                  encoding="utf-8")
+    md.write_text(header + _fmt_table(agg) + "\n" + _fmt_band_table(df) + "\n"
+                  + _fmt_snr_table(df), encoding="utf-8")
 
     print(f"\nper-clip -> {per_clip}\naggregate -> {agg_csv}\ntable -> {md}")
     print(_fmt_table(agg))
+    print(_fmt_band_table(df))
     print(_fmt_snr_table(df))
 
 

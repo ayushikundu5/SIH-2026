@@ -1,0 +1,12 @@
+{
+ "checkpoint": "/mnt/c/Users/Ayushi Kundu/OneDrive/Desktop/SIH_2026/checkpoints/wide32_best.pt",
+ "onnx": "/mnt/c/Users/Ayushi Kundu/OneDrive/Desktop/SIH_2026/artifacts/model_wide32_simple.onnx",
+ "max_abs_diff": 4.3958425521850586e-07,
+ "rel_to_rms": 6.952031526452629e-06,
+ "match": true,
+ "frames": 611,
+ "ms_p50": 7.7913070053909905,
+ "ms_p95": 9.30049850285286,
+ "ms_mean": 7.951968150529073,
+ "rtf": 0.49699800940806704
+}

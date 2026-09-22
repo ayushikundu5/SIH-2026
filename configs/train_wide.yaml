@@ -1,0 +1,61 @@
+# Wider GTCRN, trained from scratch on the defence mixtures.
+#
+# Why: the 16-wide model is capacity-bound. Fine-tuning moved val PESQ only
+# 1.779 -> 1.788 over 60 epochs while train loss kept falling, and three
+# differently-trained 16-wide checkpoints all land at PESQ 1.81-1.93 on the
+# frozen set (results/results_onnx.md).
+#
+# Why 32 and not wider (measured 21 Sep 2026, ONNX streaming, 1 thread, this
+# laptop's CPU): width 16 RTF 0.286, width 32 RTF 0.482, width 48 RTF 0.708.
+# 32 is the widest that keeps the RTF < 0.5 target; 48 also overruns the 16 ms
+# frame deadline at its worst frames (max 16.8 ms), which glitches live audio.
+#
+# Recipe follows the upstream GTCRN training setup (third_party/SEtrain):
+# lr 1e-3, warmup then cosine to 1e-6, grad clip 3.0, HybridLoss 70/30/1.
+# A width change cannot load the pretrained 16-wide weights, hence scratch.
+
+model:
+  width: 32
+
+init:
+  checkpoint: ""
+
+data:
+  epoch_size: 20000        # fewer, longer epochs: validation is overhead
+  val_size: 400            # identical val set to the earlier runs (fixed seed)
+  batch_size: 24           # 2.8 GB peak on the 6 GB card at width 32
+  # Measured end to end in WSL, audio on WSL's own disk (SIH_DATA_ROOT):
+  # 0.386 s/step at 11 workers, 0.397 at 8. Reading C: through the 9P bridge
+  # instead ran ~1.1 s/step. 8 leaves CPU for the laptop to stay usable.
+  num_workers: 8
+  seed: 1337
+
+optim:
+  epochs: 180              # ~6.3 min/epoch incl. validation -> ~19 h
+  lr: 1.0e-3
+  weight_decay: 1.0e-5
+  betas: [0.9, 0.999]
+  grad_clip: 3.0
+  warmup_steps: 4000
+  scheduler: cosine
+  min_lr: 1.0e-6
+
+loss:
+  w_mag: 70.0
+  w_ri: 30.0
+  w_sisnr: 1.0
+  # 0.0: the transient term was measured to do nothing on bursts and to cost
+  # PESQ/STOI elsewhere (paired ablation, CLAUDE.md). The shipped model has none.
+  w_transient: 0.0
+
+precision: fp32
+
+checkpoint:
+  dir: checkpoints
+  save_every_epoch: true
+  keep_last: 3
+  monitor: val_pesq
+  mode: max
+  # A from-scratch run on a cosine schedule improves slowly and noisily late
+  # on; stopping at 12 flat epochs would abandon it before the LR anneals.
+  patience: 40

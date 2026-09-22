@@ -32,35 +32,37 @@ if str(STREAM_DIR) not in sys.path:
     sys.path.insert(0, str(STREAM_DIR))
 
 from src import stft as S                      # noqa: E402
-from src.models.gtcrn import GTCRN             # noqa: E402
+from src.models.gtcrn_wide import (cache_shapes, make_gtcrn,  # noqa: E402
+                                   make_stream_gtcrn, width_of)
 
-from src.framing import CONV_CACHE, INTER_CACHE, TRA_CACHE  # noqa: E402,F401
 
-
-def zero_caches(np_mode: bool = False):
+def zero_caches(np_mode: bool = False, width: int = 16):
+    """Cache shapes follow the model width; 16 = upstream GTCRN, and equals
+    the constants in `src/framing.py`."""
     mk = (lambda s: np.zeros(s, dtype="float32")) if np_mode else \
          (lambda s: torch.zeros(*s))
-    return mk(CONV_CACHE), mk(TRA_CACHE), mk(INTER_CACHE)
+    return tuple(mk(s) for s in cache_shapes(width))
 
 
 def build_stream_model(ckpt: Path, device: str = "cpu"):
-    from gtcrn_stream import StreamGTCRN            # noqa: PLC0415
     from modules.convert import convert_to_stream   # noqa: PLC0415
 
-    offline = GTCRN().to(device).eval()
     obj = torch.load(ckpt, map_location=device, weights_only=False)
     state = obj.get("model", obj.get("state_dict", obj)) if isinstance(obj, dict) else obj
+    width = width_of(state)
+    offline = make_gtcrn(width).to(device).eval()
     offline.load_state_dict(state)
 
-    stream = StreamGTCRN().to(device).eval()
+    stream = make_stream_gtcrn(width).to(device).eval()
     convert_to_stream(stream, offline)
-    return offline, stream
+    return offline, stream, width
 
 
 def export(ckpt: Path, out: Path, simplify: bool = True) -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
-    _, stream = build_stream_model(ckpt)
-    conv_c, tra_c, inter_c = zero_caches()
+    _, stream, width = build_stream_model(ckpt)
+    print(f"model width {width}; caches {cache_shapes(width)}")
+    conv_c, tra_c, inter_c = zero_caches(width=width)
     dummy = torch.randn(1, 257, 1, 2)
 
     torch.onnx.export(
@@ -100,7 +102,7 @@ def verify(onnx_path: Path, ckpt: Path, wav: np.ndarray, tol: float = 1e-3) -> d
     """Frame-by-frame ONNX vs whole-utterance PyTorch."""
     import onnxruntime as ort
 
-    offline, _ = build_stream_model(ckpt)
+    offline, _, width = build_stream_model(ckpt)
     with torch.no_grad():
         spec = S.stft(torch.from_numpy(wav))[None]
         ref = S.istft(offline(spec)[0], length=len(wav)).numpy()
@@ -111,7 +113,7 @@ def verify(onnx_path: Path, ckpt: Path, wav: np.ndarray, tol: float = 1e-3) -> d
     sess = ort.InferenceSession(str(onnx_path), so, providers=["CPUExecutionProvider"])
 
     x = spec.numpy()
-    conv_c, tra_c, inter_c = zero_caches(np_mode=True)
+    conv_c, tra_c, inter_c = zero_caches(np_mode=True, width=width)
     outs, times = [], []
     for i in range(x.shape[-2]):
         t0 = time.perf_counter()

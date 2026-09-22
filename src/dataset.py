@@ -32,8 +32,23 @@ from .mixer import Mixer
 
 
 def load_manifest(path) -> dict:
+    """Load the manifest, mapping every stored `path` to this machine (see
+    `audio.local_path`) - it is written on Windows but also read from WSL."""
     with open(path, encoding="utf-8") as f:
-        return json.load(f)
+        man = json.load(f)
+
+    def _walk(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k == "path" and isinstance(v, str):
+                    o[k] = A.local_path(v)
+                else:
+                    _walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                _walk(v)
+    _walk(man)
+    return man
 
 
 class MixtureDataset(Dataset):

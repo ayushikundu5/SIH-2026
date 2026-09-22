@@ -82,8 +82,7 @@ def seg_snr_db(ref: np.ndarray, est: np.ndarray, sr: int = SR,
 
 # --------------------------------------------------------------- perceptual
 
-def pesq_wb(ref: np.ndarray, est: np.ndarray, sr: int = SR) -> float:
-    """Wideband PESQ (ITU-T P.862.2), range roughly 1.0 - 4.5."""
+def _pesq(ref: np.ndarray, est: np.ndarray, sr: int, mode: str) -> float:
     if not PESQ_AVAILABLE:
         return float("nan")
     ref, est = _align(ref, est)
@@ -91,12 +90,29 @@ def pesq_wb(ref: np.ndarray, est: np.ndarray, sr: int = SR) -> float:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             return float(_pesq_fn(sr, ref.astype(np.float32),
-                                  est.astype(np.float32), "wb"))
+                                  est.astype(np.float32), mode))
     except Exception:  # noqa: BLE001
         # PESQ raises on degenerate input (all-silence, no detectable speech).
         # At very low SNR this happens legitimately - record NaN rather than
         # crashing a sweep of thousands of clips.
         return float("nan")
+
+
+def pesq_wb(ref: np.ndarray, est: np.ndarray, sr: int = SR) -> float:
+    """Wideband PESQ (ITU-T P.862.2), range roughly 1.0 - 4.5. The primary
+    PESQ figure everywhere in this project."""
+    return _pesq(ref, est, sr, "wb")
+
+
+def pesq_nb(ref: np.ndarray, est: np.ndarray, sr: int = SR) -> float:
+    """Narrowband PESQ (ITU-T P.862, MOS-LQO mapped), range roughly 1.0 - 4.5.
+
+    Reported ALONGSIDE wideband, never instead of it. It scores the 300-3400 Hz
+    telephone band, which is what a narrowband tactical radio carries, and runs
+    systematically higher than wideband on the same audio - so a table must
+    always say which one a number is.
+    """
+    return _pesq(ref, est, sr, "nb")
 
 
 def stoi_score(ref: np.ndarray, est: np.ndarray, sr: int = SR,
@@ -151,6 +167,7 @@ def reference_metrics(clean: np.ndarray, noisy: np.ndarray, sr: int = SR) -> dic
     """
     return {
         "pesq_noisy":   pesq_wb(clean, noisy, sr),
+        "pesq_nb_noisy": pesq_nb(clean, noisy, sr),
         "stoi_noisy":   stoi_score(clean, noisy, sr),
         "estoi_noisy":  stoi_score(clean, noisy, sr, extended=True),
         "si_sdr_noisy": si_sdr_db(clean, noisy),
@@ -169,6 +186,7 @@ def evaluate_pair(clean: np.ndarray, noisy: np.ndarray, enhanced: np.ndarray,
     """
     out = {
         "pesq":        pesq_wb(clean, enhanced, sr),
+        "pesq_nb":     pesq_nb(clean, enhanced, sr),
         "stoi":        stoi_score(clean, enhanced, sr),
         "estoi":       stoi_score(clean, enhanced, sr, extended=True),
         "si_sdr":      si_sdr_db(clean, enhanced),
@@ -180,5 +198,6 @@ def evaluate_pair(clean: np.ndarray, noisy: np.ndarray, enhanced: np.ndarray,
     out["snr_gain"] = out["snr"] - out["snr_noisy"]
     out["si_sdr_gain"] = out["si_sdr"] - out["si_sdr_noisy"]
     out["pesq_gain"] = out["pesq"] - out["pesq_noisy"]
+    out["pesq_nb_gain"] = out["pesq_nb"] - out["pesq_nb_noisy"]
     out["stoi_gain"] = out["stoi"] - out["stoi_noisy"]
     return out

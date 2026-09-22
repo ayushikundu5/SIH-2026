@@ -6,11 +6,41 @@ sit in that path.
 """
 from __future__ import annotations
 
+import os
+import re
+
 import numpy as np
 import soundfile as sf
 import soxr
 
 SR = 16000
+
+_WIN_DRIVE = re.compile(r"^([A-Za-z]):[\\/]")
+_WIN_DATA_ROOT = re.compile(r"^[A-Za-z]:[\\/]+SIH26052_data(?=[\\/]|$)", re.I)
+
+
+def local_path(p) -> str:
+    r"""Map a stored path to one that exists on THIS machine.
+
+    Manifests and configs are written on the Windows machine, so they hold
+    absolute `C:\SIH26052_data\...` paths. The same data is reachable from
+    WSL as `/mnt/c/...`, and a Linux box may keep it anywhere. Rules:
+
+      - `SIH_DATA_ROOT` set: the `<drive>:\SIH26052_data` prefix is replaced
+        by it (e.g. a copy on a faster local disk).
+      - otherwise, on POSIX: `X:\...` -> `/mnt/x/...` (the WSL mount).
+      - otherwise (Windows, or a path that is not a Windows path): unchanged.
+    """
+    s = str(p)
+    root = os.environ.get("SIH_DATA_ROOT")
+    m = _WIN_DATA_ROOT.match(s)
+    if root and m:
+        return root.rstrip("/\\") + s[m.end():].replace("\\", "/")
+    if os.name == "posix":
+        d = _WIN_DRIVE.match(s)
+        if d:
+            return f"/mnt/{d.group(1).lower()}/" + s[3:].replace("\\", "/")
+    return s
 
 
 # --------------------------------------------------------------------------- io

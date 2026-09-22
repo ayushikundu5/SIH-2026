@@ -29,7 +29,7 @@ from src import metrics as M                    # noqa: E402
 from src import stft as S                       # noqa: E402
 from src.dataset import MixtureDataset, load_manifest   # noqa: E402
 from src.losses import TransientWeightedLoss    # noqa: E402
-from src.models.gtcrn import GTCRN              # noqa: E402
+from src.models.gtcrn_wide import make_gtcrn, width_of   # noqa: E402
 
 
 def build_scheduler(opt, cfg, steps_per_epoch: int):
@@ -96,6 +96,13 @@ def main() -> None:
                     help="override mixtures per epoch (small values smoke-test "
                          "the trainer end to end in a minute)")
     ap.add_argument("--val-size", type=int, default=None)
+    ap.add_argument("--width", type=int, default=None,
+                    help="override model.width (GTCRN channels; upstream = 16). "
+                         "A width other than the init checkpoint's means "
+                         "training from scratch: set init.checkpoint to \"\"")
+    ap.add_argument("--lr", type=float, default=None, help="override optim.lr")
+    ap.add_argument("--init", default=None,
+                    help="override init.checkpoint ('' = from scratch)")
     ap.add_argument("--tag", default="ft")
     ap.add_argument("--resume", action="store_true")
     a = ap.parse_args()
@@ -114,6 +121,13 @@ def main() -> None:
         cfg["data"]["epoch_size"] = a.epoch_size
     if a.val_size is not None:
         cfg["data"]["val_size"] = a.val_size
+    cfg.setdefault("model", {}).setdefault("width", 16)
+    if a.width is not None:
+        cfg["model"]["width"] = a.width
+    if a.lr is not None:
+        cfg["optim"]["lr"] = a.lr
+    if a.init is not None:
+        cfg["init"]["checkpoint"] = a.init
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if device == "cpu":
@@ -133,15 +147,22 @@ def main() -> None:
     train_ld = DataLoader(train_ds, shuffle=False, **common)
     val_ld = DataLoader(val_ds, shuffle=False, **common)
 
-    model = GTCRN().to(device)
+    width = int(cfg["model"]["width"])
+    model = make_gtcrn(width).to(device)
     init = cfg["init"]["checkpoint"]
     if init:
         obj = torch.load(ROOT / init, map_location=device, weights_only=False)
         state = obj.get("model", obj.get("state_dict", obj))
+        if width_of(state) != width:
+            raise SystemExit(
+                f"init checkpoint {init} is width {width_of(state)}, model is "
+                f"width {width}. Pass --init '' to train from scratch.")
         model.load_state_dict(state)
         print(f"initialised from {init}")
+    else:
+        print("initialised from scratch")
     n_par = sum(p.numel() for p in model.parameters())
-    print(f"GTCRN parameters: {n_par:,}   device: {device}")
+    print(f"GTCRN width {width}, parameters: {n_par:,}   device: {device}")
 
     loss_fn = TransientWeightedLoss(**cfg["loss"])
     print(f"loss: transient weight = {cfg['loss']['w_transient']}, "
