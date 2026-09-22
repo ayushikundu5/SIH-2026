@@ -1,6 +1,6 @@
 # Results - onnx
 
-- generated: 2026-09-22T07:01:32+00:00
+- generated: 2026-09-22T19:03:49+00:00
 - git: `not-a-repo`
 - test set: `C:\SIH26052_data\testset` (frozen, seed 20260827)
 - device: `cpu`
@@ -16,12 +16,14 @@ SI-SDR gain measured INSIDE the gunfire/explosion bursts only. A whole-clip scor
 
 | category | method | burst SI-SDR gain | whole-clip SI-SDR gain | burst % of clip |
 |---|---|---|---|---|
+| artillery | `onnx:artifacts/model_combat32_simple.onnx` | **+8.78** | +9.14 | 20.3% |
 | artillery | `onnx:artifacts/model_wide32_simple.onnx` | **+8.44** | +8.66 | 20.3% |
 | artillery | `onnx:artifacts/model_simple.onnx` | **+7.90** | +8.07 | 20.3% |
 | artillery | `onnx:artifacts/model_lowsnr_simple.onnx` | **+7.56** | +7.41 | 20.3% |
 | artillery | `onnx:artifacts/gtcrn_dns3_simple.onnx` | **+7.03** | +7.28 | 20.3% |
 | artillery | `wiener` | **+0.16** | +0.32 | 20.3% |
 | artillery | `unprocessed` | **+0.00** | +0.00 | 20.3% |
+| gunshot | `onnx:artifacts/model_combat32_simple.onnx` | **+8.39** | +8.25 | 18.7% |
 | gunshot | `onnx:artifacts/model_wide32_simple.onnx` | **+8.12** | +7.87 | 18.7% |
 | gunshot | `onnx:artifacts/model_simple.onnx` | **+7.16** | +6.98 | 18.7% |
 | gunshot | `onnx:artifacts/model_lowsnr_simple.onnx` | **+7.15** | +6.58 | 18.7% |
@@ -34,6 +36,7 @@ SI-SDR gain measured INSIDE the gunfire/explosion bursts only. A whole-clip scor
 | method | PESQ-WB | PESQ-NB | STOI | SI-SDR gain | output SNR | SNR gain | RTF | meets targets |
 |---|---|---|---|---|---|---|---|---|
 | `onnx:artifacts/gtcrn_dns3_simple.onnx` | 1.631 | 2.240 | 0.832 | +7.28 | +8.68 | +8.14 | 0.4685 | PESQFAIL STOIFAIL SNRoutFAIL SNRgainFAIL RTFPASS |
+| `onnx:artifacts/model_combat32_simple.onnx` | 1.856 | 2.469 | 0.853 | +9.14 | +10.29 | +9.74 | 0.7011 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFFAIL |
 | `onnx:artifacts/model_lowsnr_simple.onnx` | 1.665 | 2.250 | 0.826 | +7.41 | +8.92 | +8.38 | 0.4909 | PESQFAIL STOIFAIL SNRoutFAIL SNRgainFAIL RTFPASS |
 | `onnx:artifacts/model_simple.onnx` | 1.725 | 2.311 | 0.836 | +8.07 | +9.33 | +8.79 | 0.4949 | PESQFAIL STOIFAIL SNRoutFAIL SNRgainFAIL RTFPASS |
 | `onnx:artifacts/model_wide32_simple.onnx` | 1.807 | 2.407 | 0.849 | +8.66 | +9.87 | +9.32 | 0.6938 | PESQFAIL STOIFAIL SNRoutFAIL SNRgainFAIL RTFFAIL |
@@ -45,6 +48,7 @@ SI-SDR gain measured INSIDE the gunfire/explosion bursts only. A whole-clip scor
 | method | PESQ-WB | PESQ-NB | STOI | SI-SDR gain | output SNR | SNR gain | RTF | meets targets |
 |---|---|---|---|---|---|---|---|---|
 | `onnx:artifacts/gtcrn_dns3_simple.onnx` | 1.699 | 2.226 | 0.818 | +3.86 | +9.45 | +4.78 | 0.5792 | PESQFAIL STOIFAIL SNRoutFAIL SNRgainFAIL RTFFAIL |
+| `onnx:artifacts/model_combat32_simple.onnx` | 1.996 | 2.513 | 0.851 | +5.66 | +10.97 | +6.30 | 0.6812 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFFAIL |
 | `onnx:artifacts/model_lowsnr_simple.onnx` | 1.751 | 2.255 | 0.814 | +3.30 | +9.33 | +4.65 | 0.4569 | PESQFAIL STOIFAIL SNRoutFAIL SNRgainFAIL RTFPASS |
 | `onnx:artifacts/model_simple.onnx` | 1.829 | 2.337 | 0.827 | +4.55 | +10.12 | +5.44 | 0.4897 | PESQFAIL STOIFAIL SNRoutFAIL SNRgainFAIL RTFPASS |
 | `onnx:artifacts/model_wide32_simple.onnx` | 1.945 | 2.456 | 0.845 | +5.18 | +10.68 | +6.01 | 0.6848 | PESQFAIL STOIFAIL SNRoutFAIL SNRgainFAIL RTFFAIL |
@@ -56,6 +60,7 @@ SI-SDR gain measured INSIDE the gunfire/explosion bursts only. A whole-clip scor
 | method | PESQ-WB | PESQ-NB | STOI | SI-SDR gain | output SNR | SNR gain | RTF | meets targets |
 |---|---|---|---|---|---|---|---|---|
 | `onnx:artifacts/gtcrn_dns3_simple.onnx` | 1.963 | 2.555 | 0.870 | +4.82 | +10.93 | +5.34 | 0.5470 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFFAIL |
+| `onnx:artifacts/model_combat32_simple.onnx` | 2.269 | 2.821 | 0.889 | +6.43 | +12.38 | +6.79 | 0.6860 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFFAIL |
 | `onnx:artifacts/model_lowsnr_simple.onnx` | 1.991 | 2.578 | 0.867 | +4.66 | +10.79 | +5.20 | 0.4578 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFPASS |
 | `onnx:artifacts/model_simple.onnx` | 2.061 | 2.636 | 0.874 | +5.38 | +11.40 | +5.81 | 0.4948 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFPASS |
 | `onnx:artifacts/model_wide32_simple.onnx` | 2.206 | 2.777 | 0.887 | +6.23 | +12.22 | +6.62 | 0.7152 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFFAIL |
@@ -67,6 +72,7 @@ SI-SDR gain measured INSIDE the gunfire/explosion bursts only. A whole-clip scor
 | method | PESQ-WB | PESQ-NB | STOI | SI-SDR gain | output SNR | SNR gain | RTF | meets targets |
 |---|---|---|---|---|---|---|---|---|
 | `onnx:artifacts/gtcrn_dns3_simple.onnx` | 1.796 | 2.369 | 0.849 | +5.74 | +9.26 | +6.43 | 0.4837 | PESQFAIL STOIFAIL SNRoutFAIL SNRgainFAIL RTFPASS |
+| `onnx:artifacts/model_combat32_simple.onnx` | 2.092 | 2.654 | 0.871 | +8.25 | +11.51 | +8.68 | 0.7162 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFFAIL |
 | `onnx:artifacts/model_lowsnr_simple.onnx` | 1.840 | 2.403 | 0.847 | +6.58 | +10.10 | +7.27 | 0.4980 | PESQFAIL STOIFAIL SNRoutFAIL SNRgainFAIL RTFPASS |
 | `onnx:artifacts/model_simple.onnx` | 1.903 | 2.443 | 0.854 | +6.98 | +10.43 | +7.60 | 0.5083 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFFAIL |
 | `onnx:artifacts/model_wide32_simple.onnx` | 2.052 | 2.598 | 0.866 | +7.87 | +11.19 | +8.36 | 0.7119 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFFAIL |
@@ -78,6 +84,7 @@ SI-SDR gain measured INSIDE the gunfire/explosion bursts only. A whole-clip scor
 | method | PESQ-WB | PESQ-NB | STOI | SI-SDR gain | output SNR | SNR gain | RTF | meets targets |
 |---|---|---|---|---|---|---|---|---|
 | `onnx:artifacts/gtcrn_dns3_simple.onnx` | 1.865 | 2.497 | 0.869 | +4.03 | +10.58 | +4.47 | 0.4851 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFPASS |
+| `onnx:artifacts/model_combat32_simple.onnx` | 2.173 | 2.780 | 0.890 | +5.73 | +12.18 | +6.07 | 0.6797 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFFAIL |
 | `onnx:artifacts/model_lowsnr_simple.onnx` | 1.891 | 2.497 | 0.868 | +3.97 | +10.56 | +4.44 | 0.5090 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFFAIL |
 | `onnx:artifacts/model_simple.onnx` | 1.992 | 2.591 | 0.875 | +4.74 | +11.22 | +5.11 | 0.4925 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFPASS |
 | `onnx:artifacts/model_wide32_simple.onnx` | 2.139 | 2.723 | 0.888 | +5.53 | +12.02 | +5.90 | 0.7024 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFFAIL |
@@ -89,6 +96,7 @@ SI-SDR gain measured INSIDE the gunfire/explosion bursts only. A whole-clip scor
 | method | PESQ-WB | PESQ-NB | STOI | SI-SDR gain | output SNR | SNR gain | RTF | meets targets |
 |---|---|---|---|---|---|---|---|---|
 | `onnx:artifacts/gtcrn_dns3_simple.onnx` | 1.930 | 2.537 | 0.885 | +4.44 | +11.50 | +4.80 | 0.6037 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFFAIL |
+| `onnx:artifacts/model_combat32_simple.onnx` | 2.251 | 2.849 | 0.905 | +6.10 | +13.00 | +6.31 | 0.6972 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFFAIL |
 | `onnx:artifacts/model_lowsnr_simple.onnx` | 1.985 | 2.572 | 0.884 | +4.26 | +11.41 | +4.71 | 0.4351 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFPASS |
 | `onnx:artifacts/model_simple.onnx` | 2.078 | 2.654 | 0.892 | +5.25 | +12.21 | +5.51 | 0.5157 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFFAIL |
 | `onnx:artifacts/model_wide32_simple.onnx` | 2.193 | 2.789 | 0.902 | +5.67 | +12.63 | +5.94 | 0.7079 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFFAIL |
@@ -104,6 +112,11 @@ SI-SDR gain measured INSIDE the gunfire/explosion bursts only. A whole-clip scor
 | `onnx:artifacts/gtcrn_dns3_simple.onnx` | 5-10 dB | 169 | 1.957 | 2.624 | 0.904 | +12.02 | +4.52 |
 | `onnx:artifacts/gtcrn_dns3_simple.onnx` | 10-15 dB | 95 | 2.393 | 3.075 | 0.947 | +15.76 | +3.41 |
 | `onnx:artifacts/gtcrn_dns3_simple.onnx` | >15 dB | 54 | 2.726 | 3.338 | 0.958 | +17.89 | +0.48 |
+| `onnx:artifacts/model_combat32_simple.onnx` | <0 dB | 170 | 1.477 | 1.967 | 0.762 | +6.32 | +10.97 |
+| `onnx:artifacts/model_combat32_simple.onnx` | 0-5 dB | 232 | 1.890 | 2.496 | 0.871 | +10.29 | +7.78 |
+| `onnx:artifacts/model_combat32_simple.onnx` | 5-10 dB | 169 | 2.289 | 2.946 | 0.923 | +13.26 | +5.76 |
+| `onnx:artifacts/model_combat32_simple.onnx` | 10-15 dB | 95 | 2.826 | 3.394 | 0.959 | +17.35 | +5.00 |
+| `onnx:artifacts/model_combat32_simple.onnx` | >15 dB | 54 | 3.183 | 3.638 | 0.971 | +20.18 | +2.77 |
 | `onnx:artifacts/model_lowsnr_simple.onnx` | <0 dB | 170 | 1.366 | 1.812 | 0.724 | +5.28 | +9.92 |
 | `onnx:artifacts/model_lowsnr_simple.onnx` | 0-5 dB | 232 | 1.672 | 2.248 | 0.842 | +8.88 | +6.37 |
 | `onnx:artifacts/model_lowsnr_simple.onnx` | 5-10 dB | 169 | 1.987 | 2.632 | 0.903 | +11.60 | +4.10 |
@@ -137,6 +150,7 @@ The >15 dB target is only reachable in the low-input-SNR regime; at high input S
 | method | <0 dB | 0-5 dB | 5-10 dB | 10-15 dB | >15 dB |
 |---|---|---|---|---|---|
 | `onnx:artifacts/gtcrn_dns3_simple.onnx` | +8.64 (n=170) | +6.43 (n=232) | +4.52 (n=169) | +3.41 (n=95) | +0.48 (n=54) |
+| `onnx:artifacts/model_combat32_simple.onnx` | +10.97 (n=170) | +7.78 (n=232) | +5.76 (n=169) | +5.00 (n=95) | +2.77 (n=54) |
 | `onnx:artifacts/model_lowsnr_simple.onnx` | +9.92 (n=170) | +6.37 (n=232) | +4.10 (n=169) | +3.14 (n=95) | +0.06 (n=54) |
 | `onnx:artifacts/model_simple.onnx` | +10.06 (n=170) | +6.92 (n=232) | +4.81 (n=169) | +4.06 (n=95) | +1.44 (n=54) |
 | `onnx:artifacts/model_wide32_simple.onnx` | +10.24 (n=170) | +7.61 (n=232) | +5.56 (n=169) | +4.87 (n=95) | +2.78 (n=54) |

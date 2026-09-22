@@ -1,0 +1,53 @@
+# Fine-tune wide32 with the REAL combat-noise category added.
+#
+# Starts from checkpoints/wide32_best.pt (width 32, trained from scratch on the
+# synthetic defence mixtures; frozen-set PESQ 2.057). Adds `combat_real` via
+#   --data-config configs/data_combat.yaml --manifest manifests/manifest_combat.json
+#
+# A fine-tune, not a fresh run: the synthetic recipe is already learned, the
+# new data is ~2.2 h of real field audio, and a from-scratch run would cost
+# ~18 h of laptop time for no expected gain. Lower peak LR than from scratch,
+# short warm-up. Same loss as wide32 (transient term off - see CLAUDE.md).
+#
+# NOTE: val_pesq is NOT comparable with earlier runs' - adding a category
+# changes which validation mixtures are drawn. Compare models on the frozen
+# test set and the real-combat test set, never on val_pesq across runs.
+
+model:
+  width: 32
+
+init:
+  checkpoint: checkpoints/wide32_best.pt
+
+data:
+  epoch_size: 20000
+  val_size: 400
+  batch_size: 24
+  num_workers: 8
+  seed: 20260922           # new seed: do not replay wide32's exact mixture stream
+
+optim:
+  epochs: 60               # ~6 min/epoch measured -> ~6 h, plus any lid-closed time
+  lr: 3.0e-4
+  weight_decay: 1.0e-5
+  betas: [0.9, 0.999]
+  grad_clip: 3.0
+  warmup_steps: 1000
+  scheduler: cosine
+  min_lr: 1.0e-6
+
+loss:
+  w_mag: 70.0
+  w_ri: 30.0
+  w_sisnr: 1.0
+  w_transient: 0.0
+
+precision: fp32
+
+checkpoint:
+  dir: checkpoints
+  save_every_epoch: true
+  keep_last: 3
+  monitor: val_pesq
+  mode: max
+  patience: 20

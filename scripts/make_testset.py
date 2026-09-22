@@ -44,9 +44,18 @@ def main() -> None:
     ap.add_argument("--out", default=None,
                     help="write elsewhere (e.g. a scratch set for harness "
                          "validation) instead of the canonical frozen set")
+    # The four options below exist for ADDITIONAL test sets (e.g. the
+    # real-combat-noise set). Their defaults reproduce the frozen set exactly.
+    ap.add_argument("--config", default="configs/data.yaml")
+    ap.add_argument("--manifest", default="manifests/manifest.json")
+    ap.add_argument("--categories", nargs="+", default=None,
+                    help="render only these categories (default: all in the config)")
+    ap.add_argument("--no-background", action="store_true",
+                    help="omit the MUSAN background layer, so the noise is the "
+                         "category's own recordings only")
     a = ap.parse_args()
 
-    with open(ROOT / "configs" / "data.yaml") as f:
+    with open(ROOT / a.config) as f:
         cfg = yaml.safe_load(f)
     out = Path(a.out) if a.out else Path(cfg["paths"]["testset"])
 
@@ -59,19 +68,22 @@ def main() -> None:
         shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
 
-    with open(ROOT / "manifests" / "manifest.json", encoding="utf-8") as f:
-        man = json.load(f)
+    from src.dataset import load_manifest
+    man = load_manifest(ROOT / a.manifest)
 
     speech = man["speech"].get("test", [])
     if not speech:
         raise SystemExit("no test speech in manifest - run build_manifests.py")
     noise = man.get("noise", {})
-    background = [r["path"] for r in noise.get("_background", {}).get("test", [])]
+    background = [] if a.no_background else \
+        [r["path"] for r in noise.get("_background", {}).get("test", [])]
     rirs = [r["path"] for r in man.get("rir", {}).get("test", [])]
     mixer = Mixer(cfg)
 
     items, rng = [], np.random.default_rng(a.seed)
     for cat, spec in cfg["categories"].items():
+        if a.categories and cat not in a.categories:
+            continue
         recs = noise.get(cat, {}).get("test", [])
         if not recs:
             print(f"[skip] {cat}: no held-out noise available")
@@ -138,6 +150,8 @@ def main() -> None:
         "note": ("Frozen evaluation set. Held-out speakers, noise recordings "
                  "and rooms. Do not regenerate - reported results reference "
                  "these exact files."),
+        "config": a.config, "manifest": a.manifest,
+        "categories": a.categories, "background": not a.no_background,
         "items": items,
     }
     with open(out / "index.json", "w", encoding="utf-8") as f:

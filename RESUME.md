@@ -64,6 +64,96 @@ MSYS_NO_PATHCONV=1 wsl.exe -d Ubuntu-24.04 -u root -- bash /mnt/c/SIH26052_data/
 Windows-native still does ONNX eval: `evaluate.py --workers 11` with `onnx:`
 methods, ~3 min per model for the 720-clip set.
 
+### !! Training-data bug found 22 Sep 16:20 — read before trusting any plateau
+
+Every training run until now saw ONE fixed set of `epoch_size` mixtures,
+repeated every epoch (persistent DataLoader workers never received
+`set_epoch`; see CLAUDE.md invariant 14a). Fixed in `src/train.py`, guarded by
+`tests/test_train_loader.py`. Consequences:
+- Evaluation numbers of existing models are still valid measurements of those
+  models - they are simply under-trained, not mis-measured.
+- The "capacity ceiling" reading of the flat val curves (below, and in the
+  wide32 section) is CONFOUNDED: a model memorising 20k fixed mixtures also
+  goes flat. Re-test before repeating it, e.g. a fixed-data wide32 run.
+
+### Done: `combat32` — wide32 fine-tuned with REAL combat noise
+
+Started 22 Sep 2026 14:20 IST, 60 epochs (~6 h + lid-closed time). Epochs 0-19
+ran with the frozen-data bug (epoch-0 set for 0-14, epoch-15 set for 15-19 after
+a GPU hang at 15:44 forced a restart); resumed at epoch 20 at 16:26 WITH the
+fix, so epochs 20-59 each see fresh mixtures.
+
+**(Re)start everything with `C:\SIH26052_data\start_combat32.ps1`**
+(right-click > Run with PowerShell; safe to re-run - it skips whatever is
+already running). It starts `run_combat32_keep_awake.ps1` ->
+`train_combat32_loop.sh` (self-healing, `--resume`), `train_watchdog_v2.sh`
+(kills a hung run: at once on a logged "CUDA error", else after >5 min of
+silence - WSL2 threw "CUDA error: unknown error" and HUNG twice on 22 Sep, at
+15:46 and 22:37) and the ntfy notifier through WMI (`Win32_Process.Create`), so they
+do NOT die with Claude/VS Code. Jobs started from a Claude session - even with
+`Start-Process` - sit in that session's Windows job object and are killed when
+it closes; that stopped training twice on 22 Sep (16:29, 17:49; resumed at
+epochs 20 and 32). Stop file `C:\SIH26052_data\STOP_COMBAT32`; log
+`C:\SIH26052_data\train_combat32.log`.
+
+The data - the team's Drive folder of 98 combat videos (YouTube, Syria /
+Ukraine), turned into speech-free noise by:
+
+1. `scripts/download_drive_combat.py` - 98 mp4, 4.2 GB (folder ID kept out of
+   the repo: `C:\SIH26052_data\drive_folder_id.txt`)
+2. `scripts/extract_drive_audio.py` - 96 with audio, 12.7 h, 16 kHz mono
+3. `scripts/tag_drive_audio.py` (WSL, PANNs Cnn14) - every 1 s window scored
+   on 527 AudioSet classes. **Median speech score 0.47: over half has voices.**
+4. `scripts/select_drive_segments.py` - keep speech<0.1 & music<0.1 & >-50 dBFS,
+   trim 0.5 s each edge, >=3 s; split BY VIDEO (compilations -> train)
+5. `scripts/whisper_check_segments.py` (WSL GPU) - independent speech check:
+   6/1454 flagged, all hallucinations ("Thank you.", "BOOM!"), dropped anyway
+6. `scripts/add_drive_to_manifest.py` -> `manifests/manifest_combat.json`
+   (original manifest untouched); `configs/data_combat.yaml` adds
+   `combat_real` (steady layer, weight 2.0); `configs/train_combat.yaml`
+
+Result: train 68 videos / 138 min, val 4 / 10 min, test 21 / 26 min
+(gunfire 55%, vehicle 20%, explosion 8%, ambient 27%; aircraft did not survive
+the speech filter). `make_testset.py` gained `--config/--manifest/--categories/
+--no-background` (defaults verified byte-identical on the frozen set) and
+rendered **`C:\SIH26052_data\testset_combat`**: 150 clips, held-out speakers +
+real combat noise only, realised input SNR median +4.8 dB (-1.4..+15.6).
+
+**FINISHED 23 Sep 00:27, 60/60 epochs** (best = epoch 56, val PESQ 2.1014;
+val_pesq is NOT comparable with earlier runs - the new category changed the val
+mixtures). Survived three WSL "CUDA error: unknown error" hangs (15:46, 22:37,
+00:00) and two Claude-session kills; ~20 min lost in total. Exported
+`artifacts/model_combat32{,_simple}.onnx` (streaming vs offline max abs diff
+8.8e-7, `results/onnx_verify_combat32.json`). **RTF 0.4761** (target < 0.5,
+idle machine, `results/bench_edge_combat32.json`); latency 40.99 ms vs the
+32 ms target, as expected for width 32.
+
+**combat32 is the best model on ALL THREE test sets** (paired vs wide32, all
+p < 1e-10):
+
+| | frozen defence (720) | real combat (150) | VoiceBank-DEMAND (824) |
+|---|---|---|---|
+| | PESQ / STOI / out SNR | PESQ / STOI / out SNR | PESQ / STOI / out SNR |
+| unprocessed | 1.319 / 0.801 / 4.41 | 1.298 / 0.783 / 5.72 | 1.968 / 0.921 / 8.45 |
+| shipped (w16) | 1.931 / 0.860 / 10.79 | 1.858 / 0.850 / 11.46 | 2.387 / 0.921 / 16.34 |
+| wide32 | 2.057 / 0.873 / 11.44 | 1.879 / 0.860 / 11.94 | 2.111 / 0.903 / 15.91 |
+| **combat32** | **2.106 / 0.876 / 11.72** | **1.977 / 0.865 / 12.15** | **2.334 / 0.911 / 17.52** |
+
+- vs wide32: defence PESQ +0.050 (78% of clips), real-combat PESQ +0.098 (81%),
+  VBD PESQ +0.223 (73%) and VBD SNR +1.62 dB (82%).
+- **The VBD regression is largely repaired** (2.111 -> 2.334 vs shipped's
+  2.387) and VBD output SNR 17.52 dB now beats shipped's 16.34.
+- Frozen set by input SNR: <0 dB 1.48/0.76/6.3, 0-5 1.89/0.87/10.3,
+  5-10 2.29/0.92/13.3, **10-15 2.83/0.96/17.4**, **>15 3.18/0.97/20.2** - all
+  three PS targets pass at >= 10 dB input.
+- Burst SI-SDR gain: gunshot 8.39 dB, artillery 8.78 (shipped: 7.16 / 7.90).
+- **Attribution caveat:** this run changed TWO things at once - the real-combat
+  category AND the frozen-data fix (epochs 20-59). A wide32 retrain with only
+  the fix would separate them; not run.
+- Still short of PESQ 2.5 (-0.39) and output SNR 15 dB (-3.3) as a whole-set
+  average on the defence set. `artifacts/model.onnx` is STILL the old w16
+  model - swapping the deliverable is the team's call.
+
 ### Done: `wide32` — GTCRN at width 32, from scratch
 
 Trained 21 Sep 17:48 -> 22 Sep 12:25 IST, `configs/train_wide.yaml`. Stopped

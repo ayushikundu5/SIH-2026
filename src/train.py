@@ -86,6 +86,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="configs/train.yaml")
     ap.add_argument("--data-config", default="configs/data.yaml")
+    ap.add_argument("--manifest", default="manifests/manifest.json",
+                    help="e.g. manifests/manifest_combat.json for the real-combat category")
     ap.add_argument("--w-transient", type=float, default=None,
                     help="override loss.w_transient (0.0 = upstream objective)")
     ap.add_argument("--w-consonant", type=float, default=None,
@@ -134,7 +136,7 @@ def main() -> None:
         print("!! CUDA not available - this will be extremely slow !!")
     torch.manual_seed(cfg["data"]["seed"])
 
-    man = load_manifest(ROOT / "manifests" / "manifest.json")
+    man = load_manifest(ROOT / a.manifest)
     d = cfg["data"]
     train_ds = MixtureDataset(man, dcfg, "train", d["epoch_size"], d["seed"])
     # Val uses a fixed seed and never advances its epoch, so it draws the
@@ -142,10 +144,20 @@ def main() -> None:
     val_ds = MixtureDataset(man, dcfg, "val", d["val_size"], seed=999_777)
 
     common = dict(batch_size=d["batch_size"], num_workers=d["num_workers"],
-                  pin_memory=(device == "cuda"), drop_last=False,
-                  persistent_workers=d["num_workers"] > 0)
-    train_ld = DataLoader(train_ds, shuffle=False, **common)
-    val_ld = DataLoader(val_ds, shuffle=False, **common)
+                  pin_memory=(device == "cuda"), drop_last=False)
+    # The TRAIN loader must NOT use persistent workers. Each worker holds its
+    # own pickled copy of the dataset, made when the workers start, so
+    # `train_ds.set_epoch(epoch)` in this process never reaches them: with
+    # persistent workers every epoch regenerated the IDENTICAL mixtures
+    # (verified 22 Sep 2026 - same batch checksum at epochs 0, 1, 2). Every run
+    # before that date trained on one fixed set of `epoch_size` mixtures,
+    # redrawn only when the process restarted. Re-creating the workers each
+    # epoch costs a few seconds and makes set_epoch work.
+    train_ld = DataLoader(train_ds, shuffle=False, persistent_workers=False, **common)
+    # Validation is fixed by design (fixed seed, never set_epoch), so keeping
+    # its workers alive is safe and saves the start-up cost.
+    val_ld = DataLoader(val_ds, shuffle=False,
+                        persistent_workers=d["num_workers"] > 0, **common)
 
     width = int(cfg["model"]["width"])
     model = make_gtcrn(width).to(device)

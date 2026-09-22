@@ -379,6 +379,19 @@ plausible.
     small (37.45 ms busy vs 38.01 ms idle); per-frame ONNX Runtime dispatch
     dominates, not contention.
 
+14a. **The training data must change every epoch — and until 22 Sep 2026 it
+    did not.** DataLoader workers hold a pickled copy of the dataset made when
+    they start; with `persistent_workers=True` they never see
+    `train_ds.set_epoch()`, so every epoch regenerated the IDENTICAL mixtures
+    (same batch checksum at epochs 0, 1, 2). Every run before the fix (`ft`,
+    `ablation_no_transient` = shipped, `lowsnr`, `wide32`, the first 20
+    epochs of `combat32`) trained on ONE fixed set of `epoch_size` mixtures,
+    redrawn only when the process restarted. It showed up as a loss that jumps
+    back up after every resume, then falls again. Conclusions drawn from those
+    runs about plateaus ("capacity ceiling", "more epochs won't help") are
+    confounded by it. The train loader now uses `persistent_workers=False`;
+    `tests/test_train_loader.py` pins that.
+
 14. **The only intentional placeholder** is `artifacts/passthrough_stub.onnx` — a
     Day-1 identity model with the real interface so hardware integration could
     proceed. It is clearly labelled and produces no metrics. Everything else must

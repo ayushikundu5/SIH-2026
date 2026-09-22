@@ -1,0 +1,12 @@
+{
+ "checkpoint": "/mnt/c/Users/Ayushi Kundu/OneDrive/Desktop/SIH_2026/checkpoints/combat32_best.pt",
+ "onnx": "/mnt/c/Users/Ayushi Kundu/OneDrive/Desktop/SIH_2026/artifacts/model_combat32_simple.onnx",
+ "max_abs_diff": 8.791685104370117e-07,
+ "rel_to_rms": 1.3868883797840681e-05,
+ "match": true,
+ "frames": 611,
+ "ms_p50": 6.9219740016706055,
+ "ms_p95": 8.597429498877318,
+ "ms_mean": 7.205374517213494,
+ "rtf": 0.4503359073258434
+}
