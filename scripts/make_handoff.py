@@ -33,6 +33,8 @@ sys.path.insert(0, str(ROOT))
 from src.framing import CONV_CACHE, INTER_CACHE, TRA_CACHE  # noqa: E402
 from src.framing import HOP, N_FFT, SR, WIN                     # noqa: E402
 
+N_FREQ = N_FFT // 2 + 1
+
 OUT = ROOT / "artifacts"
 
 
@@ -52,7 +54,7 @@ def make_stub() -> Path:
     OUT.mkdir(parents=True, exist_ok=True)
     path = OUT / "passthrough_stub.onnx"
     m = PassThrough().eval()
-    dummy = (torch.randn(1, 257, 1, 2), torch.zeros(*CONV_CACHE),
+    dummy = (torch.randn(1, N_FREQ, 1, 2), torch.zeros(*CONV_CACHE),
              torch.zeros(*TRA_CACHE), torch.zeros(*INTER_CACHE))
     torch.onnx.export(
         m, dummy, str(path),
@@ -69,7 +71,7 @@ def make_stub() -> Path:
 
     import onnxruntime as ort
     sess = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
-    x = np.random.randn(1, 257, 1, 2).astype("float32")
+    x = np.random.randn(1, N_FREQ, 1, 2).astype("float32")
     out = sess.run([], {"mix": x,
                         "conv_cache": np.zeros(CONV_CACHE, "float32"),
                         "tra_cache": np.zeros(TRA_CACHE, "float32"),
@@ -91,6 +93,7 @@ def spec_sheet(onnx_name: str) -> str:
     shapes = _cache_shapes(OUT / onnx_name)
     conv_s, tra_s, inter_s = (shapes["conv_cache"], shapes["tra_cache"],
                               shapes["inter_cache"])
+    mix_s = shapes["mix"]
     bench = ROOT / "results" / "bench.json"
     b = json.loads(bench.read_text(encoding="utf-8")) if bench.exists() else None
     ver = ROOT / "results" / "onnx_verify.json"
@@ -148,7 +151,7 @@ must feed its output caches back in on the next call.
 ### Inputs
 | name | shape | dtype |
 |---|---|---|
-| `mix` | `(1, 257, 1, 2)` | float32 |
+| `mix` | `{mix_s}` | float32 |
 | `conv_cache` | `{conv_s}` | float32 |
 | `tra_cache` | `{tra_s}` | float32 |
 | `inter_cache` | `{inter_s}` | float32 |

@@ -33,15 +33,17 @@ if str(STREAM_DIR) not in sys.path:
 
 from src import stft as S                      # noqa: E402
 from src.models.gtcrn_wide import (cache_shapes, make_gtcrn,  # noqa: E402
-                                   make_stream_gtcrn, width_of)
+                                   make_stream_gtcrn, nfft_of, width_of)
+
+N_FREQ = S.N_FFT // 2 + 1
 
 
-def zero_caches(np_mode: bool = False, width: int = 16):
-    """Cache shapes follow the model width; 16 = upstream GTCRN, and equals
-    the constants in `src/framing.py`."""
+def zero_caches(np_mode: bool = False, width: int = 16, nfft: int | None = None):
+    """Cache shapes follow the model width AND the STFT size; width 16 with
+    n_fft 512 is upstream GTCRN, and equals the constants in `src/framing.py`."""
     mk = (lambda s: np.zeros(s, dtype="float32")) if np_mode else \
          (lambda s: torch.zeros(*s))
-    return tuple(mk(s) for s in cache_shapes(width))
+    return tuple(mk(s) for s in cache_shapes(width, nfft))
 
 
 def build_stream_model(ckpt: Path, device: str = "cpu"):
@@ -50,10 +52,21 @@ def build_stream_model(ckpt: Path, device: str = "cpu"):
     obj = torch.load(ckpt, map_location=device, weights_only=False)
     state = obj.get("model", obj.get("state_dict", obj)) if isinstance(obj, dict) else obj
     width = width_of(state)
-    offline = make_gtcrn(width).to(device).eval()
+    # Both width and STFT size are read out of the weights themselves, so a
+    # checkpoint cannot be exported under the wrong architecture. The STFT
+    # front end used for verification comes from the environment, though, and
+    # it has to agree: a 320-point model fed 512-point frames loads, runs, and
+    # is pure nonsense.
+    nfft = nfft_of(state)
+    if nfft != S.N_FFT:
+        raise SystemExit(
+            f"{Path(ckpt).name} was trained at n_fft={nfft} but this process "
+            f"is framing at n_fft={S.N_FFT}. Re-run with SIH_NFFT={nfft} and "
+            f"SIH_HOP set to the hop it was trained with.")
+    offline = make_gtcrn(width, nfft).to(device).eval()
     offline.load_state_dict(state)
 
-    stream = make_stream_gtcrn(width).to(device).eval()
+    stream = make_stream_gtcrn(width, nfft).to(device).eval()
     convert_to_stream(stream, offline)
     return offline, stream, width
 
@@ -61,9 +74,10 @@ def build_stream_model(ckpt: Path, device: str = "cpu"):
 def export(ckpt: Path, out: Path, simplify: bool = True) -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
     _, stream, width = build_stream_model(ckpt)
-    print(f"model width {width}; caches {cache_shapes(width)}")
+    print(f"model width {width}; n_fft {S.N_FFT} hop {S.HOP}; "
+          f"caches {cache_shapes(width)}")
     conv_c, tra_c, inter_c = zero_caches(width=width)
-    dummy = torch.randn(1, 257, 1, 2)
+    dummy = torch.randn(1, N_FREQ, 1, 2)
 
     torch.onnx.export(
         stream, (dummy, conv_c, tra_c, inter_c), str(out),
@@ -139,7 +153,9 @@ def verify(onnx_path: Path, ckpt: Path, wav: np.ndarray, tol: float = 1e-3) -> d
         "ms_p50": float(np.percentile(t, 50)),
         "ms_p95": float(np.percentile(t, 95)),
         "ms_mean": float(t.mean()),
-        "rtf": float(t.mean() / 16.0),
+        # compute per frame against the time a frame COVERS - the hop, which
+        # is 16 ms only at the shipped framing.
+        "rtf": float(t.mean() / (1000.0 * S.HOP / S.SR)),
     }
 
 

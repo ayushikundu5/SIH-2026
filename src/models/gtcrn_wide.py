@@ -20,6 +20,13 @@ nothing that worked before goes through new code.
 
 Width must be a multiple of 4 (grouped convs halve it; the grouped GRUs inside
 the dual-path RNN halve it again).
+
+The STFT size is the second parameter here, for the same reason: the band axis
+(ERB split, the two stride-2 convs, the dual-path RNN width and every streaming
+cache) is derived from `n_fft`, and shortening the window is the only way to get
+under the 32 ms latency ceiling. It defaults to whatever `src/framing.py` is
+configured for - 512 unless SIH_NFFT says otherwise - so an unset environment
+builds exactly the shipped architecture.
 """
 from __future__ import annotations
 
@@ -28,6 +35,9 @@ from pathlib import Path
 
 import torch.nn as nn
 
+from ..framing import ERB_SUBBANDS, erb_subbands, freq_width
+from ..framing import N_FFT as DEFAULT_NFFT
+from ..framing import cache_shapes as _frame_cache_shapes
 from .gtcrn import (DPGRNN, ERB, GTCRN, SFE, ConvBlock, Decoder, Encoder,
                     GTConvBlock, Mask)
 
@@ -43,22 +53,38 @@ def _check(width: int) -> int:
     return width
 
 
-def cache_shapes(width: int = DEFAULT_WIDTH) -> tuple[tuple, tuple, tuple]:
-    """(conv, tra, inter) streaming cache shapes for a model of this width.
+def cache_shapes(width: int = DEFAULT_WIDTH,
+                 nfft: int | None = None) -> tuple[tuple, tuple, tuple]:
+    """(conv, tra, inter) streaming cache shapes for a model of this size.
 
-    conv:  (enc/dec, B, C, sum of (kT-1)*dilation = 2*(1+2+5), F=33)
-    tra:   (enc/dec, 3 GTConv blocks, 1, B, GRU hidden = C)
-    inter: (2 DPGRNNs, 1, B*F = 33, hidden = C)
-    At width 16 these equal the constants in `src/framing.py`.
+    Delegates to `framing.cache_shapes`, which owns the arithmetic so the
+    torch-free inference path can state the shapes without importing a model.
+    At width 16 / n_fft 512 these equal the constants in `src/framing.py`.
     """
-    w = _check(width)
-    return (2, 1, w, 16, 33), (2, 3, 1, 1, w), (2, 1, 33, w)
+    return _frame_cache_shapes(_check(width), nfft)
 
 
 def width_of(state_dict: dict) -> int:
     """Recover the width a checkpoint was trained at from its weight shapes -
     no separate metadata to go missing or disagree with the weights."""
     return int(state_dict["encoder.en_convs.0.conv.weight"].shape[0])
+
+
+def nfft_of(state_dict: dict) -> int:
+    """Recover the STFT size the same way, from the ERB filter bank.
+
+    `erb_fc.weight` is (erb_subband_2, n_fft//2 + 1 - erb_subband_1), and the
+    pairs in ERB_SUBBANDS give one n_fft each. Reading it from the weights
+    means a checkpoint cannot be run at the wrong window size by accident -
+    which would load, run, and quietly produce rubbish, since the architecture
+    is otherwise identical.
+    """
+    shape = tuple(state_dict["erb.erb_fc.weight"].shape)
+    for nfft, (erb1, erb2) in ERB_SUBBANDS.items():
+        if shape == (erb2, nfft // 2 + 1 - erb1):
+            return nfft
+    raise ValueError(f"erb.erb_fc.weight has shape {shape}, which matches no "
+                     f"entry in framing.ERB_SUBBANDS ({sorted(ERB_SUBBANDS)})")
 
 
 # ---------------------------------------------------------------- offline
@@ -88,27 +114,34 @@ class WideDecoder(Decoder):
 
 
 class GTCRNWide(GTCRN):
-    def __init__(self, width: int = DEFAULT_WIDTH):
+    def __init__(self, width: int = DEFAULT_WIDTH, nfft: int | None = None):
         nn.Module.__init__(self)
         w = _check(width)
+        nfft = DEFAULT_NFFT if nfft is None else int(nfft)
+        erb1, erb2 = erb_subbands(nfft)
+        f = freq_width(nfft)
         self.width = w
-        self.erb = ERB(65, 64)
+        self.nfft = nfft
+        self.erb = ERB(erb1, erb2, nfft=nfft)
         self.sfe = SFE(3, 1)
         self.encoder = WideEncoder(w)
-        self.dpgrnn1 = DPGRNN(w, 33, w)
-        self.dpgrnn2 = DPGRNN(w, 33, w)
+        self.dpgrnn1 = DPGRNN(w, f, w)
+        self.dpgrnn2 = DPGRNN(w, f, w)
         self.decoder = WideDecoder(w)
         self.mask = Mask()
 
 
-def make_gtcrn(width: int = DEFAULT_WIDTH) -> nn.Module:
-    """Upstream GTCRN at the default width, the wide wrapper otherwise."""
-    return GTCRN() if _check(width) == DEFAULT_WIDTH else GTCRNWide(width)
+def make_gtcrn(width: int = DEFAULT_WIDTH, nfft: int | None = None) -> nn.Module:
+    """Upstream GTCRN at the shipped width and window, the wrapper otherwise."""
+    nfft = DEFAULT_NFFT if nfft is None else int(nfft)
+    if _check(width) == DEFAULT_WIDTH and nfft == 512:
+        return GTCRN()
+    return GTCRNWide(width, nfft)
 
 
 # -------------------------------------------------------------- streaming
 
-def make_stream_gtcrn(width: int = DEFAULT_WIDTH) -> nn.Module:
+def make_stream_gtcrn(width: int = DEFAULT_WIDTH, nfft: int | None = None) -> nn.Module:
     """Streaming counterpart, for ONNX export. Imports the upstream streaming
     code lazily: it resolves `modules.*` relative to its own directory."""
     if str(_STREAM_DIR) not in sys.path:
@@ -116,7 +149,10 @@ def make_stream_gtcrn(width: int = DEFAULT_WIDTH) -> nn.Module:
     import gtcrn_stream as up  # noqa: PLC0415
 
     w = _check(width)
-    if w == DEFAULT_WIDTH:
+    nfft = DEFAULT_NFFT if nfft is None else int(nfft)
+    erb1, erb2 = erb_subbands(nfft)
+    f = freq_width(nfft)
+    if w == DEFAULT_WIDTH and nfft == 512:
         return up.StreamGTCRN()
 
     class _Enc(up.StreamEncoder):
@@ -145,11 +181,12 @@ def make_stream_gtcrn(width: int = DEFAULT_WIDTH) -> nn.Module:
         def __init__(self):
             nn.Module.__init__(self)
             self.width = w
-            self.erb = up.ERB(65, 64)
+            self.nfft = nfft
+            self.erb = up.ERB(erb1, erb2, nfft=nfft)
             self.sfe = up.SFE(3, 1)
             self.encoder = _Enc()
-            self.dpgrnn1 = up.DPGRNN(w, 33, w)
-            self.dpgrnn2 = up.DPGRNN(w, 33, w)
+            self.dpgrnn1 = up.DPGRNN(w, f, w)
+            self.dpgrnn2 = up.DPGRNN(w, f, w)
             self.decoder = _Dec()
             self.mask = up.Mask()
 

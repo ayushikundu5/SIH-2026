@@ -29,7 +29,8 @@ from src import metrics as M                    # noqa: E402
 from src import stft as S                       # noqa: E402
 from src.dataset import MixtureDataset, load_manifest   # noqa: E402
 from src.losses import TransientWeightedLoss    # noqa: E402
-from src.models.gtcrn_wide import make_gtcrn, width_of   # noqa: E402
+from src.models.gtcrn_wide import (make_gtcrn, nfft_of,  # noqa: E402
+                                   width_of)
 
 
 def build_scheduler(opt, cfg, steps_per_epoch: int):
@@ -160,7 +161,11 @@ def main() -> None:
                         persistent_workers=d["num_workers"] > 0, **common)
 
     width = int(cfg["model"]["width"])
-    model = make_gtcrn(width).to(device)
+    # The STFT size comes from the environment (SIH_NFFT, default 512) and is
+    # recorded in the checkpoint's cfg, so a run's framing is recoverable from
+    # what it produced rather than from whatever the shell happened to hold.
+    cfg["model"]["nfft"], cfg["model"]["hop"] = S.N_FFT, S.HOP
+    model = make_gtcrn(width, S.N_FFT).to(device)
     init = cfg["init"]["checkpoint"]
     if init:
         obj = torch.load(ROOT / init, map_location=device, weights_only=False)
@@ -169,12 +174,20 @@ def main() -> None:
             raise SystemExit(
                 f"init checkpoint {init} is width {width_of(state)}, model is "
                 f"width {width}. Pass --init '' to train from scratch.")
+        if nfft_of(state) != S.N_FFT:
+            raise SystemExit(
+                f"init checkpoint {init} was trained at n_fft={nfft_of(state)}, "
+                f"this run frames at n_fft={S.N_FFT}. A different window is a "
+                f"different architecture - train from scratch (--init '') or "
+                f"set SIH_NFFT={nfft_of(state)}.")
         model.load_state_dict(state)
         print(f"initialised from {init}")
     else:
         print("initialised from scratch")
     n_par = sum(p.numel() for p in model.parameters())
-    print(f"GTCRN width {width}, parameters: {n_par:,}   device: {device}")
+    print(f"GTCRN width {width}, n_fft {S.N_FFT} hop {S.HOP} "
+          f"({1000.0 * S.HOP / S.SR:.0f} ms chunks), parameters: {n_par:,}   "
+          f"device: {device}")
 
     loss_fn = TransientWeightedLoss(**cfg["loss"])
     print(f"loss: transient weight = {cfg['loss']['w_transient']}, "

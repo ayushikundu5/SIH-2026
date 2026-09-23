@@ -162,7 +162,7 @@ defence test set, 23 Sep 2026):
 | PESQ (wideband quality) | > 2.5 | 1.319 | **2.106** | ❌ 0.39 short |
 | Output SNR | > 15 dB | 4.41 dB | **11.72 dB** | ❌ 3.3 dB short |
 | Real-time factor | < 0.5 | — | **0.476** | ✅ passes on one CPU thread |
-| Latency | < 32 ms (our roadmap) | — | 40.99 ms | ❌ 32 ms is unavoidable at this framing |
+| Latency | < 32 ms (our roadmap) | — | 40.99 ms | ❌ at this framing — **27.41 ms measured at 320/160**, retrain pending |
 
 All three targets pass together on clips that start at **≥ 10 dB input SNR**
 (PESQ 2.83, STOI 0.96, output SNR 17.4 dB) and on the standard VoiceBank-DEMAND
@@ -321,7 +321,13 @@ rare frame does run late on this laptop; an embedded GPU or TensorRT build has
 far more margin.
 
 **Latency 40.99 ms** against a 32 ms target — **does not pass, and cannot** at
-this framing. See [Known limitations](#known-limitations).
+this framing, because the delay before any arithmetic is the window length
+itself. A shorter window does pass, measured: 27.41 ms total at a 320-point
+window with width 24, exported and benchmarked through the same path
+(`results/bench_framing_probe.json`). That model has not been trained yet, so
+what the coarser frequency resolution costs in PESQ/STOI is still unknown —
+`configs/train_short24.yaml` is the run that answers it. See
+[Known limitations](#known-limitations).
 
 Width was chosen on this measurement, not by preference: width 16 → RTF 0.286,
 width 32 → 0.482, width 48 → 0.708 (worst frame 16.8 ms). 32 is the widest that
@@ -797,18 +803,23 @@ PyTorch is unavailable, so the suite still reports on a machine set up for
 inference only:
 
 ```
-36 passed                   # full environment
-30 passed, 6 skipped        # PyTorch absent or blocked
+59 passed                   # full environment
+46 passed, 13 skipped       # PyTorch absent or blocked — measured, not assumed,
+                            # by putting a module that raises ImportError in
+                            # front of the real torch on sys.path
 ```
 
 Those two tests were previously **broken rather than skipping** - the module
 bound `S` to `src.framing`, which is NumPy-only and has no `stft`/`istft`, while
 they called `S.stft`. They raised `AttributeError` whenever PyTorch was present.
 Fixed; the suite genuinely reports every test it claims. It has since grown to
-36, adding the width wrapper (`tests/test_wide.py` — width 16 must stay
+**59**, adding the width wrapper (`tests/test_wide.py` — width 16 must stay
 bit-identical to upstream, and a wide streaming export must match its offline
-model) and the training-loader guard (`tests/test_train_loader.py`, invariant
-14a).
+model), the training-loader guard (`tests/test_train_loader.py`, invariant 14a)
+and the configurable STFT size (`tests/test_framing_size.py` — the default must
+stay 512/256 or every checkpoint silently changes meaning, the band arithmetic
+must round-trip, an unknown size must raise rather than be guessed, and a
+320-point streaming model must match its offline twin frame by frame).
 
 ```bash
 PY=.venv/bin/python
@@ -833,6 +844,11 @@ $PY scripts/smoke_train.py --steps 20 --batch 24 --workers 8
 
 # the full trainer, two tiny epochs — exercises scheduler, validation, checkpointing
 $PY -m src.train --tag smoke --epochs 2 --epoch-size 480 --val-size 96
+
+# the same, at the SHORT window that meets the 32 ms latency target. Both
+# variables are needed, and every later step (export, evaluate, bench) needs
+# them too; unset means the shipped 512/256 and changes nothing.
+SIH_NFFT=320 SIH_HOP=160 $PY -m src.train --tag smoke_short --width 24 --epochs 2 --epoch-size 480 --val-size 96
 
 # render mixtures AND check them (mask coverage + burst prominence)
 $PY scripts/qa_mixtures.py --n 24
@@ -988,8 +1004,19 @@ that admits them.
 1. **The 32 ms latency target cannot be met** with GTCRN's 512/256 framing.
    16 ms of chunk buffering plus a *measured* 16 ms overlap-add delay is 32 ms
    before a single multiply; the total is 40.99 ms for `combat32` (38.01 ms for
-   the 48K model). No faster processor fixes the 32 ms floor. The fix is
-   320/160 framing (20 ms window, ~21 ms total) and a retrain.
+   the 48K model). No faster processor fixes the 32 ms floor, because it is not
+   a compute cost.
+
+   **The fix is built and measured, not yet trained.** The STFT size is a
+   parameter now (`SIH_NFFT` / `SIH_HOP`, unset = the shipped 512/256), and an
+   untrained width-24 model exported at 320/160 measures **27.41 ms total, RTF
+   0.53 on a busy machine** (~0.39 idle) — both targets, for the first time in
+   this project. Speed transfers from an untrained export because per-frame time
+   depends on the graph and not on the weights in it; quality does not, so the
+   only honest statement today is that latency is solvable and the cost in
+   PESQ/STOI is unmeasured. The retrain is `configs/train_short24.yaml`, and it
+   changes the agreed chunk size from 16 ms to 10 ms — a contract change the
+   hardware team has to accept.
 
 1b. **PESQ and output SNR miss their targets as a whole-set average** — 2.106
    against 2.5, and 11.72 dB against 15 dB. Both pass from 10 dB input SNR

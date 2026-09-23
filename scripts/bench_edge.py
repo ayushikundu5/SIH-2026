@@ -27,7 +27,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.framing import CONV_CACHE, HOP, INTER_CACHE, SR, TRA_CACHE, WIN  # noqa: E402
+from src.framing import (CONV_CACHE, HOP, INTER_CACHE, N_FFT,  # noqa: E402
+                         SR, TRA_CACHE, WIN)
 
 HOP_MS = 1000.0 * HOP / SR
 WIN_MS = 1000.0 * WIN / SR
@@ -42,9 +43,11 @@ def bench_onnx(onnx_path: Path, n_frames: int, threads: int, warmup: int = 50) -
     sess = ort.InferenceSession(str(onnx_path), so, providers=["CPUExecutionProvider"])
 
     rng = np.random.default_rng(0)
-    frames = rng.standard_normal((n_frames + warmup, 1, 257, 1, 2)).astype("float32")
-    # Cache shapes scale with model width; take them from the graph itself.
+    # Frequency bins and cache shapes scale with the model's STFT size and
+    # width; take both from the graph itself.
     shapes = {i.name: i.shape for i in sess.get_inputs()}
+    n_freq = shapes["mix"][1] if isinstance(shapes["mix"][1], int) else N_FFT // 2 + 1
+    frames = rng.standard_normal((n_frames + warmup, 1, n_freq, 1, 2)).astype("float32")
     conv_c = np.zeros(shapes.get("conv_cache", CONV_CACHE), dtype="float32")
     tra_c = np.zeros(shapes.get("tra_cache", TRA_CACHE), dtype="float32")
     inter_c = np.zeros(shapes.get("inter_cache", INTER_CACHE), dtype="float32")

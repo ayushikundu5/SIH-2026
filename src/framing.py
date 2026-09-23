@@ -9,32 +9,113 @@ run.
 
 `stft.py` re-exports everything here, so existing imports keep working.
 
-These values are NOT free parameters: they must match `src/models/gtcrn.py`
-exactly or the pretrained weights are meaningless.
+These values are NOT free parameters: they must match the model that produced
+the weights, or the weights are meaningless. The shipped configuration is
 
     n_fft = 512  ->  32 ms analysis window
     hop   = 256  ->  16 ms, the chunk size agreed with the hardware team
     window = hann(512) ** 0.5   (sqrt-Hann, analysis AND synthesis)
 
-The 32 ms window is also where the latency budget goes: algorithmic latency
-equals the window length, so it is 32 ms before any compute. See src/bench.py.
+and that is what every checkpoint in `checkpoints/` was trained at.
+
+The 32 ms window is also where the latency budget goes: algorithmic latency is
+chunk buffering (hop) plus the overlap-add delay (win - hop), so with 512/256 it
+is 32 ms before a single multiply happens - and the problem statement asks for
+under 32 ms. The only way out is a shorter window, which is why the size is a
+parameter here instead of a literal.
+
+    SIH_NFFT=320 SIH_HOP=160 python -m src.train ...   ->  10 + 10 = 20 ms
+
+Set SIH_NFFT (and optionally SIH_HOP, default n_fft/2) in the environment and
+every part of the pipeline - training, export, the streaming runtime, the
+classical baselines - follows. UNSET IS THE SHIPPED 512/256; nothing changes for
+anything that does not opt in. A model must be run at the size it was trained
+at: `StreamingEnhancer` checks the exported graph against these constants and
+refuses a mismatch rather than producing quiet nonsense.
 """
 from __future__ import annotations
+
+import os
 
 import numpy as np
 
 SR = 16000
-N_FFT = 512
-HOP = 256
-WIN = 512
 
 
-# Streaming cache shapes, fixed by the GTCRN architecture (see
-# third_party/gtcrn/stream/gtcrn_stream.py). Plain constants, kept here rather
-# than in export_onnx.py so the inference path never imports PyTorch.
-CONV_CACHE = (2, 1, 16, 16, 33)
-TRA_CACHE = (2, 3, 1, 1, 16)
-INTER_CACHE = (2, 1, 33, 16)
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        v = int(raw)
+    except ValueError:
+        raise ValueError(f"{name}={raw!r} is not an integer") from None
+    if v <= 0:
+        raise ValueError(f"{name} must be positive, got {v}")
+    return v
+
+
+# The ERB band split per FFT size: (linear bins kept as-is, ERB bands above).
+# The first number sets the crossover frequency - erb_subband_1/nfft*fs, which
+# is ~2 kHz for every entry here, so the low band keeps full resolution where
+# the formants are. The second is the GTCRN band count above it. Upstream is
+# the 512 row; the others keep the same proportions so the architecture is
+# unchanged in shape, only in size.
+ERB_SUBBANDS = {512: (65, 64), 384: (49, 48), 320: (41, 40), 256: (33, 32)}
+
+N_FFT = _env_int("SIH_NFFT", 512)
+HOP = _env_int("SIH_HOP", N_FFT // 2)
+WIN = N_FFT
+
+if N_FFT not in ERB_SUBBANDS:
+    raise ValueError(
+        f"SIH_NFFT={N_FFT} has no ERB band split; known sizes: "
+        f"{sorted(ERB_SUBBANDS)}. Add a row to ERB_SUBBANDS in src/framing.py "
+        "(and re-train - no existing checkpoint will load)."
+    )
+if HOP > WIN:
+    raise ValueError(f"SIH_HOP={HOP} exceeds the window {WIN}")
+
+
+def erb_subbands(nfft: int | None = None) -> tuple[int, int]:
+    """(erb_subband_1, erb_subband_2) for this FFT size."""
+    return ERB_SUBBANDS[N_FFT if nfft is None else int(nfft)]
+
+
+def n_bands(nfft: int | None = None) -> int:
+    """Width of the band axis the encoder sees: linear bins + ERB bands."""
+    return sum(erb_subbands(nfft))
+
+
+def _half(n: int) -> int:
+    """One encoder ConvBlock, kernel (1,5) stride (1,2) padding (0,2)."""
+    return (n + 2 * 2 - 5) // 2 + 1
+
+
+def freq_width(nfft: int | None = None) -> int:
+    """Band axis reaching the dual-path RNN - two stride-2 convs down from
+    `n_bands`. 33 at the shipped 512, and the F in every cache shape."""
+    return _half(_half(n_bands(nfft)))
+
+
+def cache_shapes(width: int = 16, nfft: int | None = None):
+    """(conv, tra, inter) streaming cache shapes.
+
+    conv:  (enc/dec, B, C, sum of (kT-1)*dilation = 2*(1+2+5), F)
+    tra:   (enc/dec, 3 GTConv blocks, 1, B, GRU hidden = C)
+    inter: (2 DPGRNNs, 1, B*F, hidden = C)
+
+    Kept here, beside the constants, so the torch-free inference path can state
+    the shapes without importing the model. Anything running an EXPORTED model
+    should still read them from the ONNX graph's own inputs - that cannot go
+    stale.
+    """
+    f = freq_width(nfft)
+    w = int(width)
+    return (2, 1, w, 16, f), (2, 3, 1, 1, w), (2, 1, f, w)
+
+
+CONV_CACHE, TRA_CACHE, INTER_CACHE = cache_shapes(16)
 
 
 def zero_caches_np():
@@ -45,7 +126,7 @@ def zero_caches_np():
 
 
 def np_window() -> np.ndarray:
-    """sqrt-Hann analysis/synthesis window, matching torch.hann_window(512)**0.5."""
+    """sqrt-Hann analysis/synthesis window, matching torch.hann_window(WIN)**0.5."""
     return (np.hanning(WIN + 1)[:WIN] ** 0.5).astype(np.float32)
 
 

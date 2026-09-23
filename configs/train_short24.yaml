@@ -1,0 +1,87 @@
+# short24 - the latency fix: width 24 at a 320-point window, 160-sample hop.
+#
+# WHY THIS RUN EXISTS. The problem statement asks for under 32 ms end-to-end,
+# and every model here has been over it - not by a little, and not because of
+# slow arithmetic. The floor is structural: algorithmic latency is chunk
+# buffering (hop) plus the overlap-add delay (win - hop), which sums to the
+# window length before a single multiply happens. At 512/256 that is 32.00 ms
+# with compute still to come, so the target cannot be met at ANY model size.
+# The only lever is a shorter window.
+#
+# MEASURED on this laptop (ONNX streaming, 1 thread, machine busy training, so
+# treat these as an upper bound - the idle numbers are ~25% lower):
+#
+#   framing    width   params    p95 compute   total latency   RTF
+#   512/256      32   103,381      12.73 ms      44.73 ms      0.646
+#   320/160      32    85,333       8.97 ms      28.90 ms      0.716
+#   320/160      24    54,597       7.41 ms      27.41 ms      0.533
+#   320/160      16    31,733       6.41 ms      26.41 ms      0.489
+#
+# Width 24 is the choice: it clears the latency target with 4.6 ms of margin
+# and, scaled to an idle machine, lands near RTF 0.39 - inside the 0.5 budget
+# with room for a slower embedded CPU. Width 32 at this window does NOT fit
+# (estimated idle RTF 0.53), which is the same trade that ruled out width 48 at
+# the long window.
+#
+# The shorter window is not free, and this run exists to price it: 161 bins
+# instead of 257, and a band axis of 21 instead of 33, means coarser frequency
+# resolution. Whether that costs PESQ/STOI - and by how much - is exactly what
+# has to be measured against combat32 rather than assumed. Report both numbers
+# together: a model that meets the latency target and loses intelligibility is
+# not an improvement (see CLAUDE.md, "Suppression and intelligibility are in
+# direct tension").
+#
+# HOW TO RUN IT. The framing is NOT in this file - it comes from the
+# environment, because `src/framing.py` is imported by the torch-free inference
+# path as well and a config cannot reach it:
+#
+#     SIH_NFFT=320 SIH_HOP=160 python -m src.train --config configs/train_short24.yaml --tag short24
+#
+# Every downstream step needs the same two variables, including the ONNX export
+# and the evaluator. Forgetting them does not produce wrong numbers quietly:
+# the exporter reads the window size back out of the checkpoint weights and
+# refuses a mismatch, and `StreamingEnhancer` refuses a graph whose bin count
+# disagrees with its own STFT.
+#
+# Everything below is combat32's recipe unchanged, so the comparison stays
+# attributable to the framing and the width.
+
+model:
+  width: 24
+
+init:
+  checkpoint: ""           # must be from scratch: a 512-point checkpoint is a
+                           # different architecture, and src/train.py refuses it
+
+data:
+  epoch_size: 20000
+  val_size: 400
+  batch_size: 24
+  num_workers: 8
+  seed: 20260924           # a different mixture stream again
+
+optim:
+  epochs: 170
+  lr: 1.0e-3
+  weight_decay: 1.0e-5
+  betas: [0.9, 0.999]
+  grad_clip: 3.0
+  warmup_steps: 4000
+  scheduler: cosine
+  min_lr: 1.0e-6
+
+loss:
+  w_mag: 70.0
+  w_ri: 30.0
+  w_sisnr: 1.0
+  w_transient: 0.0
+
+precision: fp32
+
+checkpoint:
+  dir: checkpoints
+  save_every_epoch: true
+  keep_last: 3
+  monitor: val_pesq
+  mode: max
+  patience: 40

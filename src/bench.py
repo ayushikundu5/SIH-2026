@@ -57,8 +57,14 @@ def bench_onnx(onnx_path: Path, n_frames: int = 800, threads: int = 1,
     sess = ort.InferenceSession(str(onnx_path), so, providers=["CPUExecutionProvider"])
 
     rng = np.random.default_rng(0)
-    frames = rng.standard_normal((n_frames + warmup, 1, 257, 1, 2)).astype("float32")
-    conv_c, tra_c, inter_c = zero_caches(np_mode=True)
+    # Frequency bins and cache shapes both come from the graph's own declared
+    # inputs: they follow the model's STFT size and width, so a constant here
+    # would be silently wrong for anything but the shipped 512-point model.
+    decl = {i.name: i.shape for i in sess.get_inputs()}
+    n_freq = decl["mix"][1] if isinstance(decl["mix"][1], int) else S.N_FFT // 2 + 1
+    frames = rng.standard_normal((n_frames + warmup, 1, n_freq, 1, 2)).astype("float32")
+    conv_c, tra_c, inter_c = (np.zeros(decl[k], dtype="float32")
+                              for k in ("conv_cache", "tra_cache", "inter_cache"))
 
     times = []
     for i in range(n_frames + warmup):

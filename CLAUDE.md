@@ -116,6 +116,10 @@ Python 3.12, not the system 3.14 — PyTorch ships CPU-only wheels for 3.14, so
 ./run.sh test        # unit tests
 
 bash scripts/auto_pipeline.sh   # unattended chain, resumable, skips done work
+
+# A run at the shorter window - both variables, and every downstream step needs
+# them too (export, evaluate, bench). See "STFT constants" below.
+SIH_NFFT=320 SIH_HOP=160 $PY -m src.train --config configs/train_short24.yaml --tag short24
 ```
 
 ### Measuring intelligibility - do this before claiming any improvement
@@ -284,12 +288,38 @@ weight those frames harder; `src/metrics.py::masked_metrics` uses it to measure
 still load-bearing for the burst-local metrics, which are how gunshot
 performance is honestly reported.
 
-### STFT constants are not free parameters
+### STFT constants are not free parameters, but the SIZE is a parameter
 
 `src/framing.py` defines `n_fft=512, hop=256, win=hann(512)**0.5` at 16 kHz.
-These must match `src/models/gtcrn.py` exactly or the pretrained weights are
-meaningless. `src/baselines/classical.py` uses the same framing so the
-comparison is like-for-like.
+Within one model these must match exactly or the weights are meaningless, and
+`src/baselines/classical.py` uses the same framing so the comparison is
+like-for-like.
+
+The size itself is now selectable, because the latency ceiling cannot be reached
+at 512 (see "The latency target" below). It comes from the ENVIRONMENT, not a
+config file, since `framing.py` is imported by the torch-free inference path
+where no config is loaded:
+
+```bash
+SIH_NFFT=320 SIH_HOP=160 $PY -m src.train --config configs/train_short24.yaml --tag short24
+```
+
+**Unset means the shipped 512/256**, so every existing checkpoint, artifact and
+result keeps its exact meaning. `ERB_SUBBANDS` in `framing.py` holds the known
+sizes (512, 384, 320, 256) with their ERB splits; an unknown size raises on
+import rather than guessing. Everything derived follows automatically: the band
+axis, the dual-path RNN width, the streaming cache shapes, `n_frames`, the
+sample-to-frame mask, the ONNX dummy input, the latency budget and the RTF
+divisor (which is the HOP, not a hardcoded 16 ms).
+
+**Running a model at a window it was not trained at is the failure this has to
+prevent.** The architecture is otherwise identical, so a mismatch loads, runs
+and emits confident nonsense. Two guards, both on real data rather than
+metadata: `nfft_of(state_dict)` reads the size back out of the ERB filter bank,
+and `export_onnx`, `train` and `methods` all use it; `StreamingEnhancer` refuses
+a graph whose declared bin count disagrees with its own STFT. `tests/
+test_framing_size.py` pins the default, the band arithmetic, the opt-in and the
+streaming equivalence at 320.
 
 ### The inference path must not import PyTorch
 
@@ -435,6 +465,15 @@ plausible.
 12. **Verify the streaming export against the offline model.** Wrong cache wiring
     still loads, still runs, and sounds subtly worse. Current fidelity: max abs
     diff 3.99e-07.
+
+12a. **A model must be RUN at the window it was TRAINED at.** Width and n_fft
+    are both recoverable from the weights (`width_of`, `nfft_of`) precisely so
+    this is checkable: a 320-point model handed 512-point frames has the same
+    architecture and the same key names, so it loads, runs, and produces
+    confident nonsense. `export_onnx` refuses the mismatch, `train` refuses an
+    init checkpoint from a different window, and `StreamingEnhancer` refuses a
+    graph whose bin count disagrees with its own STFT. Never "fix" one of those
+    errors by changing the checker.
 
 13. **Benchmark on an idle machine** — though note the measured difference was
     small (37.45 ms busy vs 38.01 ms idle); per-frame ONNX Runtime dispatch
@@ -619,14 +658,36 @@ from unprocessed (1.319), and it *degrades* SNR above 5 dB input. The checkpoint
 that wins on café noise is the worst on gunfire. This is the strongest single
 argument in the project for domain-specific training.
 
-### The latency target cannot be met
+### The latency target cannot be met at 512/256 - a shorter window meets it
 
 Measured: 16 ms chunk buffering + 16 ms overlap-add delay (= `win − hop`,
 measured by cross-correlation in `src/bench.py`, not assumed) + compute.
 The 32 ms floor exists before any arithmetic. The problem statement asks for
 16 ms chunks *and* under 32 ms delay; both derive from `n_fft=512`, so they
-cannot both hold. Fix, if the ceiling is hard: retrain at 320/160 (20 ms
-window, ~21 ms total).
+cannot both hold - at that window, at any model size.
+
+**Measured 23 Sep at 320/160** (10 ms chunks), ONNX streaming, 1 thread, on a
+BUSY machine - an upper bound, idle is about 0.74x
+(`results/bench_framing_probe.json`; the 320 rows are untrained probe exports,
+so speed is real and quality does not exist in them):
+
+| framing | width | params | p95 compute | total | RTF |
+|---|---|---|---|---|---|
+| 512/256 | 32 | 103,381 | 12.73 ms | 44.73 ms | 0.646 |
+| 320/160 | 32 | 85,333 | 8.97 ms | **28.90 ms** | 0.716 |
+| 320/160 | **24** | 54,597 | 7.41 ms | **27.41 ms** | 0.533 |
+| 320/160 | 16 | 31,733 | 6.41 ms | 26.41 ms | 0.489 |
+
+The overlap-add delay was measured at 159-160 samples = `win - hop` at the new
+size, so the streaming path is correct there and not merely running. Width 24 is
+the pick (`configs/train_short24.yaml`): latency with 4.6 ms of margin, RTF
+about 0.39 scaled to idle. **What the coarser resolution costs in PESQ / STOI /
+word score is unmeasured** - 161 bins and a 21-wide band axis against 257 and
+33 - and a model that meets the latency target while losing words is not an
+improvement.
+
+Note the hop is the chunk size the hardware team agreed to. 320/160 makes it
+10 ms, not 16 ms: that is a contract change, and it is theirs to accept.
 
 | model | compute p95 | total | RTF (target < 0.5) |
 |---|---|---|---|
@@ -668,8 +729,11 @@ this check working — it is what makes numbers on our own test set credible.
   weight down accordingly; `scripts/download_fsd50k_eval.sh` fills the gap.
 - **Drone/quadcopter audio is poorly covered** by open corpora. Helicopter is
   fine; drones are not.
-- The torch-free inference split remains correct and worth keeping. Note also
-  the suite is `19 passed`, not "17 pass + 2 skip": those two tests were
-  BROKEN, not skipping — `tests/test_core.py` bound `S` to `src.framing`
-  (NumPy-only, no stft/istft) while two tests called `S.stft`, so they errored
-  instead of skipping. Fixed.
+- The torch-free inference split remains correct and worth keeping. Measured
+  23 Sep: **59 passed** with the full environment, **46 passed / 13 skipped**
+  with torch deliberately unimportable (a module that raises ImportError placed
+  ahead of the real one on `sys.path` - worth re-running that way after touching
+  anything on the inference path). Note also that two tests once reported as
+  "skipping" were in fact BROKEN: `tests/test_core.py` bound `S` to
+  `src.framing` (NumPy-only, no stft/istft) while two tests called `S.stft`, so
+  they errored instead of skipping. Fixed.

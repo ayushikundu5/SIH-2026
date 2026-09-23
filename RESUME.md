@@ -6,9 +6,20 @@ setup, and where to hear every audio file.
 
 ---
 
-## In one screen — state at 23 Sep 2026, 01:00 IST
+## In one screen — state at 23 Sep 2026, 16:30 IST
 
-**Best model:** `combat32` — `artifacts/model_combat32_simple.onnx`,
+**Running now: `fresh32`.** Width 32 from scratch, 170 epochs, and the first run
+whose training mixtures actually change every epoch (invariant 14a was only
+fixed on 22 Sep). Started 13:07, epoch 33 at 16:25, ~5.4 min/epoch, ETA ~04:40
+on 24 Sep. Log: `C:\SIH26052_data\train_fresh32.log`.
+
+Nobody needs to be present for the rest of it. The job was launched through WMI,
+so it does not belong to any editor or Claude session and survives them closing;
+a watchdog kills and resumes it if CUDA hangs; and `auto_finish_fresh32.ps1`
+then exports the best checkpoint to streaming ONNX, scores it on all three test
+sets, benchmarks real-time speed and pushes the headline to the phone by itself.
+
+**Best FINISHED model:** `combat32` — `artifacts/model_combat32_simple.onnx`,
 `checkpoints/combat32_best.pt`. Width 32 (103,381 params), trained on defence
 mixtures + real combat audio. Best of every model on all three test sets.
 
@@ -19,24 +30,76 @@ mixtures + real combat audio. Best of every model on all three test sets.
 | VoiceBank-DEMAND (824) | 2.334 | 0.911 | 17.52 dB | STOI ✅, **SNR ✅** |
 
 All three targets pass at input SNR ≥ 10 dB (2.83 / 0.96 / 17.4 dB).
-RTF 0.476 ✅ (< 0.5); latency 40.99 ms ✗ (32 ms is unreachable at 512/256).
+RTF 0.476 ✅ (< 0.5); latency 40.99 ms ✗ at 512/256 — see immediately below.
 
-**Nothing is running.** Training finished 23 Sep 00:27 (60/60 epochs).
+### The 32 ms latency target is reachable after all (new, 23 Sep afternoon)
+
+The old conclusion — "the latency target cannot be met" — was correct about the
+512-point window and wrong as a general statement, and the distinction matters
+because latency is one of the deliverables. Algorithmic delay is chunk buffering
+(hop) plus the overlap-add delay (win − hop), which sums to **the window
+length**, 32.00 ms, before any compute. So no model size can meet the target at
+512/256. A shorter window can.
+
+`src/framing.py` now takes the size from the environment (`SIH_NFFT`, `SIH_HOP`;
+**unset means the shipped 512/256, so nothing that exists changes**), and the
+band arithmetic, the ERB split, the dual-path RNN width, the streaming cache
+shapes, the ONNX export and the live runtime all follow it. Measured on this
+laptop, ONNX streaming, 1 thread, **while the machine was busy training** — so
+these are an upper bound, idle is about 0.74× (`results/bench_framing_probe.json`):
+
+| framing | width | params | p95 compute | total latency | RTF |
+|---|---|---|---|---|---|
+| 512/256 | 32 | 103,381 | 12.73 ms | 44.73 ms ✗ | 0.646 |
+| 320/160 | 32 | 85,333 | 8.97 ms | **28.90 ms ✅** | 0.716 |
+| **320/160** | **24** | **54,597** | **7.41 ms** | **27.41 ms ✅** | **0.533** |
+| 320/160 | 16 | 31,733 | 6.41 ms | 26.41 ms ✅ | 0.489 ✅ |
+
+The 320-point rows are **untrained probe exports** — per-frame time depends on
+the graph, not on the weights in it, so speed transfers and quality does not
+exist in those rows. The overlap-add delay was measured by cross-correlation at
+159-160 samples = win − hop, confirming the streaming path is genuinely correct
+at the new size, not merely running.
+
+Width 24 is the pick: latency passes with 4.6 ms of margin and RTF scales to
+~0.39 idle, inside the 0.5 budget with room for a slower embedded CPU. Width 32
+at this window does not fit (≈0.53 idle), the same trade that ruled out width 48
+at the long window.
+
+**What is NOT known yet:** what the shorter window costs in quality. 161 bins
+instead of 257 and a 21-wide band axis instead of 33 is coarser frequency
+resolution, and PESQ/STOI/word score at 320/160 have never been measured.
+`configs/train_short24.yaml` is ready; launch it when the GPU frees up:
+
+```powershell
+$env:SIH_NFFT=320; $env:SIH_HOP=160
+& $PY -m src.train --config configs/train_short24.yaml --tag short24
+```
+
+Both variables are needed by every downstream step too (export, evaluate,
+bench). Forgetting them cannot corrupt a result quietly: `export_onnx` reads the
+window size back out of the checkpoint weights and refuses a mismatch, and
+`StreamingEnhancer` refuses a graph whose bin count disagrees with its own STFT.
 
 **Open decisions, in priority order:**
 1. **Swap the deliverable to `combat32`?** `artifacts/model.onnx`, `SPEC.md`
    and `example_inference.py` still describe the w16 model. One command:
    `python scripts/make_handoff.py --model artifacts/model_combat32_simple.onnx`.
+   Worth waiting for `fresh32` to land first.
 2. **Re-run the ASR intelligibility test** (`scripts/asr_score.py --model
    medium`) on `combat32`. The "suppression kills words" finding is measured on
    the w16 model only; it is the project's most important open question.
-3. **Retrain `wide32` with the 14a fix alone**, to separate "real data" from
-   "training data that actually changes" in the `combat32` result.
-4. **Revert the power setting** when no training is planned:
-   `powercfg /change standby-timeout-ac 15` (set to Never on 21 Sep).
+3. **Launch `short24`** once `fresh32` finishes, and report latency and quality
+   TOGETHER. A model that meets the 32 ms target and loses words is not an
+   improvement.
+4. **Retrain `wide32` with the 14a fix alone**, to separate "real data" from
+   "training data that actually changes" in the `combat32` result. `fresh32`
+   answers most of this.
 5. Push the latest work to the teammate's repo branch
    (`Babanstar456/SIH-2026-main`, branch `wide-gtcrn-onnx-eval`) — it still
    stops at 21 Sep. The user's own repo `ayushikundu5/SIH-2026` is current.
+6. Power setting is back to the 15-minute default on AC (reverted 23 Sep); a
+   keep-awake process holds the machine up for as long as training runs.
 
 **Deadline context:** SIH PPT submission 23 Sep. The GitHub link that goes with
 it is `ayushikundu5/SIH-2026` — **private**, so it must be made public or the

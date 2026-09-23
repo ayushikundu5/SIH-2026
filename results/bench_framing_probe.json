@@ -1,0 +1,104 @@
+{
+ "what": "Speed/latency probe of shorter STFT windows (Phase 1b). Weights are RANDOM for the 320-point rows: per-frame time depends on the graph, not on the values in it, so speed transfers and QUALITY DOES NOT EXIST in these rows. Do not quote PESQ/STOI from this file.",
+ "measured_utc": "2026-09-23T10:46:29+00:00",
+ "host": "Ayushi",
+ "caveat": "Machine was BUSY (fresh32 training on the GPU, 8 dataloader workers on the CPU). The 512/256 row measured 0.4761 RTF idle on 23 Sep and 0.6457 here, so these are an upper bound; idle is about 0.74x of these. Re-measure idle before quoting.",
+ "rows": [
+  {
+   "framing": "512/256",
+   "width": 32,
+   "model": "artifacts/model_combat32_simple.onnx",
+   "trained": true,
+   "latency": {
+    "chunk_buffering": 16.0,
+    "overlap_add_delay_measured": 16.0,
+    "model_compute_p95": 12.727879983140154,
+    "total_p95": 44.727879983140156
+   },
+   "params": 103381,
+   "hop_ms": 16.0,
+   "window_ms": 32.0,
+   "per_frame_ms": {
+    "ms_p50": 10.063,
+    "ms_p95": 12.728,
+    "ms_max": 17.867
+   },
+   "rtf_mean": 0.6457,
+   "delay_samples_measured": 256,
+   "rtf_pass": false,
+   "latency_pass": false
+  },
+  {
+   "framing": "320/160",
+   "width": 32,
+   "model": "scratch probe, UNTRAINED",
+   "trained": false,
+   "latency": {
+    "chunk_buffering": 10.0,
+    "overlap_add_delay_measured": 9.9375,
+    "model_compute_p95": 8.965094987070188,
+    "total_p95": 28.902594987070188
+   },
+   "params": 85333,
+   "hop_ms": 10.0,
+   "window_ms": 20.0,
+   "per_frame_ms": {
+    "ms_p50": 6.996,
+    "ms_p95": 8.965,
+    "ms_max": 12.05
+   },
+   "rtf_mean": 0.7155,
+   "delay_samples_measured": 159,
+   "rtf_pass": false,
+   "latency_pass": true
+  },
+  {
+   "framing": "320/160",
+   "width": 24,
+   "model": "scratch probe, UNTRAINED",
+   "trained": false,
+   "latency": {
+    "chunk_buffering": 10.0,
+    "overlap_add_delay_measured": 10.0,
+    "model_compute_p95": 7.4066550208954105,
+    "total_p95": 27.40665502089541
+   },
+   "params": 54597,
+   "hop_ms": 10.0,
+   "window_ms": 20.0,
+   "per_frame_ms": {
+    "ms_p50": 5.133,
+    "ms_p95": 7.407,
+    "ms_max": 11.666
+   },
+   "rtf_mean": 0.5328,
+   "delay_samples_measured": 160,
+   "rtf_pass": false,
+   "latency_pass": true
+  },
+  {
+   "framing": "320/160",
+   "width": 16,
+   "model": "scratch probe, UNTRAINED",
+   "trained": false,
+   "latency": {
+    "chunk_buffering": 10.0,
+    "overlap_add_delay_measured": 10.0,
+    "model_compute_p95": 6.4107799727935335,
+    "total_p95": 26.410779972793534
+   },
+   "params": 31733,
+   "hop_ms": 10.0,
+   "window_ms": 20.0,
+   "per_frame_ms": {
+    "ms_p50": 4.818,
+    "ms_p95": 6.411,
+    "ms_max": 10.115
+   },
+   "rtf_mean": 0.4894,
+   "delay_samples_measured": 160,
+   "rtf_pass": true,
+   "latency_pass": true
+  }
+ ]
+}

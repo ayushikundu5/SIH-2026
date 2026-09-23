@@ -33,11 +33,13 @@ def load_gtcrn(ckpt: str | Path, device: str = "cpu"):
     key = (str(ckpt), device)
     if key in _MODEL_CACHE:
         return _MODEL_CACHE[key]
-    from .models.gtcrn_wide import make_gtcrn, width_of
+    from .models.gtcrn_wide import make_gtcrn, nfft_of, width_of
 
     obj = torch.load(str(ckpt), map_location=device, weights_only=False)
     state = obj.get("model", obj.get("state_dict", obj)) if isinstance(obj, dict) else obj
-    model = make_gtcrn(width_of(state)).to(device).eval()
+    # Width and window both come from the weights, so a checkpoint is always
+    # rebuilt as the architecture that produced it.
+    model = make_gtcrn(width_of(state), nfft_of(state)).to(device).eval()
     model.load_state_dict(state)
     _MODEL_CACHE[key] = model
     return model

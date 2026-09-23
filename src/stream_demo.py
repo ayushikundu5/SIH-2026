@@ -56,6 +56,18 @@ class StreamingEnhancer:
         # scale with the model's channel width, and the framing.py values are
         # only correct for the upstream 16-wide model.
         declared = {i.name: i.shape for i in self.sess.get_inputs()}
+        # The STFT this class performs is fixed by framing.py, so a model
+        # exported at a different window size must be refused HERE. It would
+        # otherwise fail deep inside ONNX Runtime with a shape error, or -
+        # worse, if the dimension happens to be dynamic - run on mismatched
+        # frames and emit confident noise.
+        n_freq = declared.get("mix", [None, None])[1]
+        if isinstance(n_freq, int) and n_freq != N_FFT // 2 + 1:
+            raise ValueError(
+                f"{Path(onnx_path).name} expects {n_freq} frequency bins "
+                f"(n_fft={2 * (n_freq - 1)}) but this process is framing at "
+                f"n_fft={N_FFT}. Set SIH_NFFT={2 * (n_freq - 1)} (and SIH_HOP) "
+                f"before running it.")
         self.cache_shapes = {
             k: tuple(declared[k]) if k in declared and all(isinstance(d, int) for d in declared[k])
             else default
