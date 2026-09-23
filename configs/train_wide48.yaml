@@ -1,0 +1,62 @@
+# wide48 - Phase 2: GTCRN at width 48 (190,005 params), from scratch.
+#
+# WHY WIDTH 48. Each capacity step has paid on the frozen defence set:
+# w16 PESQ 1.931 -> w32 2.057 (+0.125) -> combat32 2.106. Width 48 is the next
+# step, and it is 1.8x the parameters of width 32.
+#
+# WHY IT RUNS ON THE SECOND MACHINE. Measured on the laptop's CPU, width 48
+# streams at RTF 0.708 - over the 0.5 real-time target, with its worst frame
+# (16.8 ms) past the 16 ms deadline. It is trained here anyway because 8-bit
+# quantisation (Phase 2b, on the laptop) is expected to bring it back inside
+# the budget, and because an embedded GPU has far more headroom than a laptop
+# CPU. If quantisation does not recover it, width 32 remains the shipping
+# model and this run still answers "how much does capacity buy".
+#
+# Needs ~4.2 GB of GPU memory at batch 24 - fits a 6 GB card (GTX 1660 Super,
+# RTX 3050) with room to spare. If the card has less, halve batch_size.
+#
+# Everything else is deliberately identical to fresh32 (the laptop's Phase 1),
+# so the two differ ONLY in width and can be compared directly.
+
+model:
+  width: 48
+
+init:
+  checkpoint: ""
+
+data:
+  epoch_size: 20000
+  val_size: 400
+  batch_size: 24
+  num_workers: 8           # set to about the machine's physical core count
+  seed: 20260923
+
+optim:
+  # ~9 min/epoch on a 6 GB card -> 120 epochs is roughly 18 h. Fewer epochs
+  # than fresh32's 170 because each one costs more; the cosine schedule is
+  # sized to whatever number is set here, so do not stop it early and expect
+  # the annealed result.
+  epochs: 120
+  lr: 1.0e-3
+  weight_decay: 1.0e-5
+  betas: [0.9, 0.999]
+  grad_clip: 3.0
+  warmup_steps: 4000
+  scheduler: cosine
+  min_lr: 1.0e-6
+
+loss:
+  w_mag: 70.0
+  w_ri: 30.0
+  w_sisnr: 1.0
+  w_transient: 0.0
+
+precision: fp32            # the 1660 Super has no tensor cores; AMP buys little
+
+checkpoint:
+  dir: checkpoints
+  save_every_epoch: true
+  keep_last: 3
+  monitor: val_pesq
+  mode: max
+  patience: 40

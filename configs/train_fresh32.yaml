@@ -1,0 +1,58 @@
+# fresh32 - width-32 GTCRN from scratch, with training data that actually
+# changes every epoch (invariant 14a).
+#
+# WHY THIS RUN EXISTS. Every model in this project so far was trained on ONE
+# fixed set of `epoch_size` mixtures, repeated every epoch: `wide32` spent 158
+# epochs on the same 20k clips, and `combat32` epochs 0-19 did too. Nobody
+# knows what this architecture does with unlimited fresh data, and the flat
+# validation curves that were read as "capacity ceiling" are confounded by it.
+#
+# Deliberately ONE variable: identical to combat32's recipe (same data config,
+# same loss, same width) except it starts from scratch and every epoch draws
+# new mixtures. So the difference against combat32 is attributable.
+#
+# Loss is UNCHANGED on purpose. An SNR-weighted variant is the obvious next
+# experiment, but changing it here would confound this one - the same mistake
+# the lowsnr run made (SNR range AND consonant term at once).
+
+model:
+  width: 32
+
+init:
+  checkpoint: ""           # from scratch: fine-tuning a memorised model would
+                           # inherit exactly what this run is testing for
+
+data:
+  epoch_size: 20000
+  val_size: 400
+  batch_size: 24           # 2.8 GB peak of the 6 GB card at width 32
+  num_workers: 8
+  seed: 20260923           # a different stream from combat32's mixtures
+
+optim:
+  # 170 epochs at ~6 min = ~17 h. wide32 needed 132 epochs to reach its best
+  # WITH stale data; with fresh mixtures the curve should keep moving longer.
+  epochs: 170
+  lr: 1.0e-3               # from scratch, so the upstream GTCRN recipe
+  weight_decay: 1.0e-5
+  betas: [0.9, 0.999]
+  grad_clip: 3.0
+  warmup_steps: 4000
+  scheduler: cosine
+  min_lr: 1.0e-6
+
+loss:
+  w_mag: 70.0
+  w_ri: 30.0
+  w_sisnr: 1.0
+  w_transient: 0.0         # measured to do nothing on bursts and to cost PESQ
+
+precision: fp32
+
+checkpoint:
+  dir: checkpoints
+  save_every_epoch: true
+  keep_last: 3
+  monitor: val_pesq
+  mode: max
+  patience: 40             # a from-scratch cosine run improves late and noisily

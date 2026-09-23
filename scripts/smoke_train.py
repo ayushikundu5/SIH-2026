@@ -33,11 +33,15 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=0)
     ap.add_argument("--split", default=None,
                     help="defaults to 'train', falling back to any split with speech")
+    ap.add_argument("--data-config", default="configs/data.yaml")
+    ap.add_argument("--manifest", default="manifests/manifest.json",
+                    help="e.g. manifests/manifest_combat.json on a machine that "
+                         "only received the combat training set")
     a = ap.parse_args()
 
-    with open(ROOT / "configs" / "data.yaml") as f:
+    with open(ROOT / a.data_config) as f:
         dcfg = yaml.safe_load(f)
-    man = load_manifest(ROOT / "manifests" / "manifest.json")
+    man = load_manifest(ROOT / a.manifest)
 
     split = a.split
     if split is None:
