@@ -58,6 +58,11 @@ def main() -> None:
     ap.add_argument("--manifest", default="manifests/manifest_combat.json")
     ap.add_argument("--dest", required=True, help="e.g. E:/sih_data (pendrive)")
     ap.add_argument("--splits", nargs="+", default=["train", "val"])
+    ap.add_argument("--include", nargs="+", default=None,
+                    help="only paths starting with these prefixes, relative to "
+                         "the data root, e.g. --include prepared/ (the corpora "
+                         "under raw/ are public downloads the other machine can "
+                         "fetch itself; prepared/ holds our own conversions)")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
 
@@ -69,6 +74,8 @@ def main() -> None:
     total, missing, copied, skipped = 0, [], 0, 0
     for p in paths:
         rel = DATA_ROOT.sub("", p).replace("\\", "/")
+        if a.include and not any(rel.startswith(pre) for pre in a.include):
+            continue
         src = Path(p)
         if not src.exists():
             missing.append(p)

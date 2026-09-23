@@ -142,20 +142,75 @@ If it prints `False`, the driver is too old — see step 2.
 
 ## 6. Get the audio data (~20 GB)
 
-Ayushi exports exactly the files this run needs onto a pendrive or external
-disk (see section 11 for her command). It arrives as a folder called
-`sih_data` containing `raw/`, `prepared/` and `manifest_combat.json`.
+Training needs 92,858 files, 19.93 GB. Almost all of it is **public research
+corpora you download yourself**; only 1 GB has to come from Ayushi.
+
+| Part | Size | Where from |
+|---|---|---|
+| MUSAN (background noise, babble) | 10.56 GB | openslr.org |
+| LibriSpeech (clean speech) | 6.38 GB | openslr.org |
+| Room impulse responses | 2.00 GB | openslr.org |
+| Our prepared clips (gunfire, sirens, engines, real combat audio) | 1.00 GB | Ayushi — these are our own 16 kHz conversions, not downloadable |
+
+**Disk budget:** 19.93 GB data + ~5 GB Python environment + ~1 GB
+checkpoints ≈ **26 GB of your 30 GB**. The commands below pipe each download
+straight into extraction, so the compressed archives never occupy disk — which
+matters, because storing them too would need 36 GB.
+
+### 6a. The public corpora (17.8 GB of downloading)
 
 ```bash
-# copy it off the drive (adjust the source path)
-cp -r /media/$USER/<PENDRIVE>/sih_data ~/sih_data
+mkdir -p ~/sih_data/raw/extracted && cd ~/sih_data/raw/extracted
 
-# the manifest belongs in the repo
+# 5.95 GB -> LibriSpeech/train-clean-100
+curl -L https://www.openslr.org/resources/12/train-clean-100.tar.gz | tar -xz
+
+# 0.31 GB -> LibriSpeech/dev-clean
+curl -L https://www.openslr.org/resources/12/dev-clean.tar.gz | tar -xz
+
+# 10.32 GB -> musan/   (the long one)
+curl -L https://www.openslr.org/resources/17/musan.tar.gz | tar -xz
+
+# 1.22 GB -> RIRS_NOISES/  (a zip cannot be streamed, so it lands on disk first;
+# only these two folders are used, which also saves 1.6 GB)
+curl -LO https://www.openslr.org/resources/28/rirs_noises.zip
+unzip -q rirs_noises.zip 'RIRS_NOISES/simulated_rirs/*' 'RIRS_NOISES/real_rirs_isotropic_noises/*'
+rm rirs_noises.zip
+```
+
+If a download breaks, re-run that line — `curl -L` restarts it. For a resumable
+download instead, use `wget -c <url>` then `tar -xzf <file>` and delete the
+file afterwards.
+
+Check what you got:
+
+```bash
+du -sh ~/sih_data/raw/extracted/*     # expect ~6.3G LibriSpeech, ~12G musan, ~2.2G RIRS_NOISES
+```
+
+### 6b. Our 1 GB package, from Ayushi
+
+She sends `sih_prepared.tgz` (0.80 GB) by Google Drive. It contains the
+prepared clips and the training manifest.
+
+```bash
+cd ~
+tar -xzf ~/Downloads/sih_prepared.tgz          # creates ~/sih_data/prepared/...
 cp ~/sih_data/manifest_combat.json ~/sih/SIH-2026/manifests/
 
-# check it arrived complete: expect about 92,858 files and 20 GB
+# check the whole thing: expect about 92,858 files and ~20 GB
 find ~/sih_data -type f | wc -l
 du -sh ~/sih_data
+```
+
+### 6c. If you'd rather use a pendrive
+
+Ayushi can instead export everything (19.93 GB) onto a 32 GB drive with
+`scripts/export_training_data.py` (section 11). Then it's just:
+
+```bash
+cp -r /media/$USER/<PENDRIVE>/sih_data ~/sih_data
+cp ~/sih_data/manifest_combat.json ~/sih/SIH-2026/manifests/
 ```
 
 **Tell the code where the data is.** The manifest was written on Windows and
@@ -283,16 +338,23 @@ evaluator, so the comparisons stay honest.
 
 ## 11. What Ayushi does on her side (for context)
 
-**Export the data for you** (once, onto a pendrive):
+**Build the 1 GB package she sends you** (what produced `sih_prepared.tgz`):
 
 ```powershell
-python scripts/export_training_data.py --dest E:/sih_data --dry-run   # check size
-python scripts/export_training_data.py --dest E:/sih_data             # ~20 GB
+& "C:\SIH26052_data\.venv\Scripts\python.exe" scripts\export_training_data.py `
+    --dest C:/SIH26052_data/for_friend/sih_data --include prepared/
+tar -czf sih_prepared.tgz sih_data
 ```
 
-This copies only the files the training manifest actually names, in the
-train/val splits — not the full 59 GB of corpora, and no test-split audio, so
-the test sets cannot leak into your training.
+Or, for the pendrive route, everything at once (19.93 GB):
+
+```powershell
+& "C:\SIH26052_data\.venv\Scripts\python.exe" scripts\export_training_data.py --dest E:/sih_data
+```
+
+Either way it copies only the files the training manifest actually names, in
+the train/val splits — not the full 59 GB of corpora, and **no test-split
+audio**, so the frozen test sets cannot leak into a training machine.
 
 **In parallel on her laptop:**
 - **Phase 1** (`fresh32`): the same width-32 model retrained from scratch. Until
