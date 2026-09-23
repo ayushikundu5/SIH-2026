@@ -19,6 +19,29 @@ a watchdog kills and resumes it if CUDA hangs; and `auto_finish_fresh32.ps1`
 then exports the best checkpoint to streaming ONNX, scores it on all three test
 sets, benchmarks real-time speed and pushes the headline to the phone by itself.
 
+**Armed behind it: `short24`** (`chain_short24.ps1`, running since 16:34). It
+waits for the finished marker, for the GPU to be free and for the evaluation to
+stop, then starts the 320/160 run described below with the same three helpers,
+and runs `finish_short24.ps1` when that ends. The GPU would otherwise sit idle
+from about 04:40. **To cancel it, before or during:**
+
+```powershell
+New-Item C:\SIH26052_data\STOP_SHORT24 -ItemType File
+```
+
+It writes only its own checkpoints, log and artifacts - nothing `fresh32`
+produced, nothing shipped, and not the frozen test set.
+
+**Where the GitHub clone lives:** `C:\SIH26052_data\repo_push` (moved out of a
+session temp directory on 23 Sep, where it would eventually have been deleted).
+The project directory itself is deliberately NOT a git repo - 64 GB of data and
+a 47k-file venv sit beside it. Publishing is: copy the changed files into that
+clone, commit, `git push origin main`. It is cloned with `core.autocrlf=false`,
+which matters: the user's global setting is `true`, and a clone made with it
+rewrites every `.sh` file with CRs that WSL cannot run. Watch for the same trap
+when writing files from Python on Windows - `write_text` turns `\n` into CRLF
+and produces a diff that touches every line of the file.
+
 **Best FINISHED model:** `combat32` — `artifacts/model_combat32_simple.onnx`,
 `checkpoints/combat32_best.pt`. Width 32 (103,381 params), trained on defence
 mixtures + real combat audio. Best of every model on all three test sets.
@@ -66,10 +89,22 @@ Width 24 is the pick: latency passes with 4.6 ms of margin and RTF scales to
 at this window does not fit (≈0.53 idle), the same trade that ruled out width 48
 at the long window.
 
+The whole path was exercised end to end at 320/160 before being armed, on a
+one-epoch throwaway model: training runs and validates (54,597 params, "10 ms
+chunks" printed at startup), the ONNX export **MATCHES the offline model**
+frame by frame, the evaluator scores it through `StreamingEnhancer`, and the
+same model **refuses to run** with the framing unset -
+
+> `smoke_short24_simple.onnx expects 161 frequency bins (n_fft=320) but this
+> process is framing at n_fft=512. Set SIH_NFFT=320 (and SIH_HOP).`
+
+- which is the one failure mode that would otherwise have produced confident
+nonsense. The throwaway checkpoint, its export and its CSVs were deleted.
+
 **What is NOT known yet:** what the shorter window costs in quality. 161 bins
 instead of 257 and a 21-wide band axis instead of 33 is coarser frequency
 resolution, and PESQ/STOI/word score at 320/160 have never been measured.
-`configs/train_short24.yaml` is ready; launch it when the GPU frees up:
+`configs/train_short24.yaml` is ready; the chain above launches it, or by hand:
 
 ```powershell
 $env:SIH_NFFT=320; $env:SIH_HOP=160
