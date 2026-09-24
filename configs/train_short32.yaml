@@ -1,0 +1,78 @@
+# short32 - width 32 at the 320-point window. The run that separates "shorter
+# window" from "smaller model".
+#
+# WHY THIS RUN EXISTS. `short24` met both real-time targets for the first time
+# in this project - 25.54 ms latency, RTF 0.437 - and cost 0.173 PESQ against
+# `fresh32` on the frozen defence set, with per-category STOI dropping below
+# target for artillery (0.840) and babble (0.836). But it changed TWO things at
+# once: the window (512 -> 320) AND the width (32 -> 24, 103,381 -> 54,597
+# parameters). So nobody knows how that 0.173 splits between them.
+#
+# Width 24 was chosen from an UNTRAINED probe export that put width 32 at 320/160
+# at RTF 0.716 on a busy machine, estimated ~0.53 idle - over the 0.5 budget. The
+# trained width-24 model then measured RTF 0.437 while OneDrive was using a core,
+# i.e. the probe's absolute numbers were pessimistic for both. Scaling the probe
+# ratio (w32 0.716 / w24 0.533 = 1.34) onto the trained w24 figure suggests
+# w32 at 320/160 lands near RTF 0.59 busy, which is roughly 0.44 idle - inside
+# budget, but NOT with the margin w24 has. That is a prediction; the point of
+# this run is to replace it with a measurement.
+#
+# Expected outcome, stated in advance so it cannot be rationalised afterwards:
+# if most of the 0.173 PESQ loss was the missing parameters, this run lands near
+# PESQ 2.05-2.10 with latency ~27 ms, which would be the best model in the
+# project on the latency-constrained axis. If most of it was the coarser
+# spectrum, this run lands near 1.98 and the shorter window is simply expensive.
+# Either answer is worth having.
+#
+# HOW TO RUN IT (both variables, and every later step needs them too):
+#
+#     SIH_NFFT=320 SIH_HOP=160 $PY -m src.train --config configs/train_short32.yaml \
+#         --data-config configs/data_combat.yaml \
+#         --manifest manifests/manifest_combat.json --tag short32
+#
+# or on Windows just:  powershell -File C:\SIH26052_data\start_short32.ps1
+#
+# Everything except `width` is identical to train_short24.yaml, so the
+# comparison is attributable to the width alone.
+
+model:
+  width: 32
+
+init:
+  checkpoint: ""           # must be from scratch: a 512-point checkpoint is a
+                           # different architecture, and src/train.py refuses it
+
+data:
+  epoch_size: 20000
+  val_size: 400
+  batch_size: 24
+  num_workers: 8
+  seed: 20260925           # a different mixture stream again
+
+optim:
+  epochs: 170
+  lr: 1.0e-3
+  weight_decay: 1.0e-5
+  betas: [0.9, 0.999]
+  grad_clip: 3.0
+  warmup_steps: 4000
+  scheduler: cosine
+  min_lr: 1.0e-6
+
+loss:
+  w_mag: 70.0
+  w_ri: 30.0
+  w_sisnr: 1.0
+  w_transient: 0.0
+
+precision: fp32
+
+checkpoint:
+  dir: checkpoints
+  save_every_epoch: true
+  keep_last: 3
+  monitor: val_pesq
+  mode: max
+  # short24 early-stopped at epoch 149 with its best at 108, so 40 is doing its
+  # job: it stopped a converged run rather than burning 20 more epochs.
+  patience: 40

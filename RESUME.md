@@ -6,7 +6,45 @@ setup, and where to hear every audio file.
 
 ---
 
-## In one screen — state at 24 Sep 2026, 07:30 IST
+## In one screen — state at 24 Sep 2026, 19:00 IST
+
+**NOTHING IS RUNNING. The machine is deliberately at rest tonight** — it trained
+for two days straight (23 Sep 13:07 → 24 Sep 18:29, two full runs back to back).
+Verified stopped: no training, no watchdogs, no notifiers, no keep-awake holding
+the machine up, WSL shut down, GPU at 0% / 0 MiB / 43 °C, sleep back to its
+normal 15 minutes on AC. It is safe to shut the laptop down.
+
+### Tomorrow: one command starts the next run
+
+```powershell
+powershell -ExecutionPolicy Bypass -File C:\SIH26052_data\start_short32.ps1
+```
+
+That is `short32` — width 32 at the 320-point window, the run that splits
+"shorter window" from "smaller model" in what `short24` cost (see below). It
+starts the training loop, the hang watchdog, the phone notifier and the
+automatic finish, all through WMI so they survive the editor closing. It
+sanity-checks CUDA and the WSL data mirror *before* committing 13 hours, and
+refuses to start twice. Stop it with:
+
+```powershell
+New-Item C:\SIH26052_data\STOP_SHORT32 -ItemType File
+```
+
+**Phase 2 is running on the second machine** (the GTX 1660 Super) — `wide48`,
+per `docs/SECOND_MACHINE.md`. When that checkpoint arrives, it needs no new
+code: drop it at `checkpoints/wide48_best.pt` and run
+
+```powershell
+powershell -File C:\SIH26052_data\finish_any.ps1 -Tag wide48
+```
+
+which exports it, scores all three test sets with the same evaluator every other
+model went through, benchmarks it and messages the phone. `finish_any.ps1` /
+`auto_finish_any.ps1` are new and generic — they replace the per-run copies
+(`finish_fresh32.ps1`, `finish_short24.ps1`), take `-Nfft`/`-Hop` for a
+short-window model, and **redirect every step to its own file instead of piping
+through `Tee-Object`**, which is what hung twice today (trap 21).
 
 **`fresh32` is DONE and is the new best model.** Width 32 from scratch, all 170
 epochs, the first run whose training mixtures changed every epoch (invariant 14a
