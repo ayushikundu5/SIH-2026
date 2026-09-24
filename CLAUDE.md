@@ -37,6 +37,11 @@ sets; on general noise it trades a little PESQ for STOI (see below):
 | wide32 | 2.057 / 0.873 / 11.44 | 1.879 / 0.860 / 11.94 | 2.111 / 0.903 / 15.91 |
 | combat32 | 2.106 / 0.876 / 11.72 | 1.977 / 0.865 / 12.15 | **2.334** / 0.911 / **17.52** |
 | **fresh32** | **2.124 / 0.879 / 11.78** | **2.002 / 0.869 / 12.30** | 2.306 / **0.917** / 17.02 |
+| short24 (320/160) | 1.952 / 0.862 / 10.77 | 1.880 / 0.852 / 11.30 | 2.179 / 0.905 / 16.08 |
+
+`short24` is the only model that meets the latency target (25.54 ms) and it is
+listed here to be compared on quality, not as a competitor for "best": see
+"The latency target" below for the trade, which is real and significant.
 
 STOI passes in every category (0.851-0.908); PESQ and output SNR pass only from
 input SNR >= 10 dB (2.829 / 0.960 / 17.41 dB, n=95; and 3.167 / 0.973 / 20.41
@@ -729,25 +734,42 @@ The 32 ms floor exists before any arithmetic. The problem statement asks for
 16 ms chunks *and* under 32 ms delay; both derive from `n_fft=512`, so they
 cannot both hold - at that window, at any model size.
 
-**Measured 23 Sep at 320/160** (10 ms chunks), ONNX streaming, 1 thread, on a
-BUSY machine - an upper bound, idle is about 0.74x
-(`results/bench_framing_probe.json`; the 320 rows are untrained probe exports,
-so speed is real and quality does not exist in them):
+**`short24` MEETS BOTH REAL-TIME TARGETS - the first model here that does.**
+Trained 24 Sep at 320/160, width 24 (`configs/train_short24.yaml`,
+`checkpoints/short24_best.pt`, `artifacts/model_short24_simple.onnx`). Measured
+on the trained export, 1 thread, machine BUSY (OneDrive at ~1 core), so these
+are an upper bound:
 
-| framing | width | params | p95 compute | total | RTF |
+| | chunk | OLA delay (measured) | p95 compute | total | RTF |
 |---|---|---|---|---|---|
-| 512/256 | 32 | 103,381 | 12.73 ms | 44.73 ms | 0.646 |
-| 320/160 | 32 | 85,333 | 8.97 ms | **28.90 ms** | 0.716 |
-| 320/160 | **24** | 54,597 | 7.41 ms | **27.41 ms** | 0.533 |
-| 320/160 | 16 | 31,733 | 6.41 ms | 26.41 ms | 0.489 |
+| `fresh32` 512/256 w32 | 16.00 | 16.00 | 8.99 | **40.99 ms** FAIL | 0.476 PASS |
+| `short24` 320/160 w24 | 10.00 | 10.00 | 5.54 | **25.54 ms PASS** | **0.437 PASS** |
 
-The overlap-add delay was measured at 159-160 samples = `win - hop` at the new
-size, so the streaming path is correct there and not merely running. Width 24 is
-the pick (`configs/train_short24.yaml`): latency with 4.6 ms of margin, RTF
-about 0.39 scaled to idle. **What the coarser resolution costs in PESQ / STOI /
-word score is unmeasured** - 161 bins and a 21-wide band axis against 257 and
-33 - and a model that meets the latency target while losing words is not an
-improvement.
+Worst frame 8.26 ms against a 10 ms deadline. The overlap-add delay is
+cross-correlated, not assumed, and lands at exactly `win - hop`.
+
+**And it costs quality - this is a trade, not a free win.** Paired per clip
+against `fresh32` on the frozen defence set: PESQ **-0.173** (better on 9% of
+clips, p = 3e-120), STOI -0.016, output SNR **-1.01 dB**, burst SI-SDR
+**-1.15 dB** (p = 8e-10, so it suppresses gunfire measurably less). Same shape
+on both other sets.
+
+**The sharpest consequence: per-category STOI stops passing.** `fresh32` clears
+0.85 in all six categories; `short24` fails artillery (0.840) and babble (0.836)
+while its whole-set average still reads a healthy 0.862. That is exactly the
+failure invariant 4 exists to catch - report per category, never one average.
+
+**Attribution is NOT clean: `short24` changed the window AND the width** (32 ->
+24, 103K -> 55K params), because width 24 was picked from an untrained probe
+that estimated width 32 would not fit the RTF budget at a 10 ms hop. The trained
+w24 measures RTF 0.437 UNDER LOAD, so that estimate was too pessimistic and a
+width-32 run at 320/160 is affordable. Until it is run, "what the shorter window
+costs" is unknown - only "what the shorter window plus a smaller model costs" is.
+
+The untrained probe table that informed the width choice is in
+`results/bench_framing_probe.json`; its speed figures held up (probe 27.41 ms vs
+trained 25.54 ms) which is the expected behaviour, since per-frame time depends
+on the graph and not on the weights in it.
 
 Note the hop is the chunk size the hardware team agreed to. 320/160 makes it
 10 ms, not 16 ms: that is a contract change, and it is theirs to accept.

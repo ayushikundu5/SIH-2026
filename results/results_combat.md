@@ -1,6 +1,6 @@
 # Results - combat
 
-- generated: 2026-09-23T23:44:10+00:00
+- generated: 2026-09-24T13:07:56+00:00
 - git: `not-a-repo`
 - test set: `C:\SIH26052_data\testset_combat` (frozen, seed 20260827)
 - device: `cpu`
@@ -17,6 +17,7 @@ Targets: PESQ > 2.5 (scored on WIDEBAND PESQ; narrowband shown for reference), S
 | `onnx:artifacts/gtcrn_dns3_simple.onnx` | 1.773 | 2.331 | 0.846 | +4.70 | +10.87 | +5.15 | 0.8816 | PESQFAIL STOIFAIL SNRoutFAIL SNRgainFAIL RTFFAIL |
 | `onnx:artifacts/model_combat32_simple.onnx` | 1.977 | 2.530 | 0.865 | +6.13 | +12.15 | +6.43 | 0.7035 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFFAIL |
 | `onnx:artifacts/model_fresh32_simple.onnx` | 2.002 | 2.551 | 0.869 | +6.25 | +12.30 | +6.59 | 0.7304 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFFAIL |
+| `onnx:artifacts/model_short24_simple.onnx` | 1.880 | 2.391 | 0.852 | +5.35 | +11.30 | +5.58 | 0.6887 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFFAIL |
 | `onnx:artifacts/model_simple.onnx` | 1.858 | 2.381 | 0.850 | +5.36 | +11.46 | +5.74 | 0.5580 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFFAIL |
 | `onnx:artifacts/model_wide32_simple.onnx` | 1.879 | 2.445 | 0.860 | +5.86 | +11.94 | +6.23 | 1.1355 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFFAIL |
 | `unprocessed` | 1.298 | 1.718 | 0.783 | +0.00 | +5.72 | +0.00 | 0.0000 | PESQFAIL STOIFAIL SNRoutFAIL SNRgainFAIL RTFPASS |
@@ -41,6 +42,11 @@ Targets: PESQ > 2.5 (scored on WIDEBAND PESQ; narrowband shown for reference), S
 | `onnx:artifacts/model_fresh32_simple.onnx` | 5-10 dB | 34 | 2.090 | 2.704 | 0.894 | +13.33 | +5.87 |
 | `onnx:artifacts/model_fresh32_simple.onnx` | 10-15 dB | 21 | 2.547 | 3.130 | 0.947 | +16.17 | +4.06 |
 | `onnx:artifacts/model_fresh32_simple.onnx` | >15 dB | 17 | 3.052 | 3.463 | 0.959 | +20.71 | +3.23 |
+| `onnx:artifacts/model_short24_simple.onnx` | <0 dB | 23 | 1.338 | 1.751 | 0.731 | +6.01 | +9.62 |
+| `onnx:artifacts/model_short24_simple.onnx` | 0-5 dB | 55 | 1.554 | 2.057 | 0.820 | +8.81 | +6.35 |
+| `onnx:artifacts/model_short24_simple.onnx` | 5-10 dB | 34 | 1.925 | 2.506 | 0.878 | +12.40 | +4.94 |
+| `onnx:artifacts/model_short24_simple.onnx` | 10-15 dB | 21 | 2.359 | 2.980 | 0.941 | +15.23 | +3.12 |
+| `onnx:artifacts/model_short24_simple.onnx` | >15 dB | 17 | 2.987 | 3.381 | 0.955 | +19.41 | +1.93 |
 | `onnx:artifacts/model_simple.onnx` | <0 dB | 23 | 1.371 | 1.788 | 0.731 | +6.17 | +9.78 |
 | `onnx:artifacts/model_simple.onnx` | 0-5 dB | 55 | 1.549 | 2.062 | 0.818 | +9.11 | +6.65 |
 | `onnx:artifacts/model_simple.onnx` | 5-10 dB | 34 | 1.918 | 2.522 | 0.876 | +12.60 | +5.14 |
@@ -71,6 +77,7 @@ The >15 dB target is only reachable in the low-input-SNR regime; at high input S
 | `onnx:artifacts/gtcrn_dns3_simple.onnx` | +8.80 (n=23) | +6.48 (n=55) | +4.84 (n=34) | +2.48 (n=21) | -0.18 (n=17) |
 | `onnx:artifacts/model_combat32_simple.onnx` | +10.24 (n=23) | +7.30 (n=55) | +5.89 (n=34) | +3.93 (n=21) | +2.64 (n=17) |
 | `onnx:artifacts/model_fresh32_simple.onnx` | +10.58 (n=23) | +7.36 (n=55) | +5.87 (n=34) | +4.06 (n=21) | +3.23 (n=17) |
+| `onnx:artifacts/model_short24_simple.onnx` | +9.62 (n=23) | +6.35 (n=55) | +4.94 (n=34) | +3.12 (n=21) | +1.93 (n=17) |
 | `onnx:artifacts/model_simple.onnx` | +9.78 (n=23) | +6.65 (n=55) | +5.14 (n=34) | +3.06 (n=21) | +1.87 (n=17) |
 | `onnx:artifacts/model_wide32_simple.onnx` | +10.27 (n=23) | +7.00 (n=55) | +5.73 (n=34) | +3.84 (n=21) | +2.20 (n=17) |
 | `unprocessed` | +0.00 (n=23) | +0.00 (n=55) | +0.00 (n=34) | +0.00 (n=21) | +0.00 (n=17) |

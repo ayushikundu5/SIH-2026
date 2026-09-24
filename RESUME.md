@@ -32,24 +32,44 @@ exported graphs are structurally identical (445 nodes, 25 op types, 172
 initialisers), so RTF 0.476 / latency 40.99 ms carry over. See "Two failures"
 below for why the benchmark taken right after training read 0.520 instead.
 
-**Running now: `short24`** - the 320/160 latency run, started automatically at
-05:45 by `chain_short24.ps1` when the GPU freed. Width 24, 54,597 params,
-10 ms chunks, 4.7 min/epoch (faster than fresh32: smaller model, fewer bins),
-epoch 20 of 170 at 07:24, **ETA ~19:15 today**. Log:
-`C:\SIH26052_data\train_short24.log`. When it ends, `finish_short24.ps1` exports
-it, scores all three test sets, benchmarks latency and messages the phone.
+**`short24` is DONE and MEETS BOTH REAL-TIME TARGETS** - the first model here
+that does. 320/160, width 24, 54,597 params, ran 05:45 to 18:29 with one start
+and no restarts. It **early-stopped at epoch 149** (best at epoch 108, then 40
+epochs with no improvement, as configured) so it had converged; more epochs were
+not going to help. Export verified against the offline model.
 
-Early signal, epoch 20: val PESQ 1.795 against `fresh32`'s 1.956 at epoch 18.
-About 0.16 behind at the same point, which is the expected price of half the
-parameters and a coarser spectrum - but it is epoch 20 of 170 and the cosine
-schedule has barely started, so it is not yet a result. **To cancel:**
+| | total latency | RTF | defence PESQ / STOI / SNR |
+|---|---|---|---|
+| `fresh32` 512/256 w32 | 40.99 ms ✗ | 0.476 ✅ | **2.124 / 0.879 / 11.78** |
+| `short24` 320/160 w24 | **25.54 ms ✅** | **0.437 ✅** | 1.952 / 0.862 / 10.77 |
 
-```powershell
-New-Item C:\SIH26052_data\STOP_SHORT24 -ItemType File
-```
+Real combat 1.880 / 0.852 / 11.30; VoiceBank-DEMAND 2.179 / 0.905 / 16.08. Both
+speed numbers were measured with OneDrive using about a core, so they are an
+upper bound; worst frame 8.26 ms against a 10 ms deadline.
 
-It writes only its own checkpoints, log and artifacts - nothing `fresh32`
-produced, nothing shipped, and not the frozen test set.
+The cost is consistent and significant: paired per clip against `fresh32`,
+PESQ **-0.173** (p = 3e-120, better on 9% of clips), STOI -0.016, SNR -1.01 dB,
+burst SI-SDR **-1.15 dB**. **And per-category STOI stops passing** - artillery
+0.840 and babble 0.836 against the 0.85 target, while the whole-set average
+still reads 0.862. STOI in every category was the one target this project
+cleanly passed.
+
+So the choice is explicit: **41 ms at PESQ 2.124, or 26 ms at PESQ 1.952 with
+two categories failing STOI.**
+
+### The obvious next run: `short32` (separates window from width)
+
+`short24` changed TWO things at once. Width 24 was chosen from an untrained
+probe that estimated width 32 would exceed the RTF budget at a 10 ms hop. The
+trained width-24 model measures **RTF 0.437 under load**, so that estimate was
+too pessimistic: width 32 at 320/160 probably fits. That single run would
+
+  - separate "shorter window" from "smaller model" in the 0.173 PESQ loss, and
+  - likely recover most of it while keeping latency near 27 ms.
+
+It is the highest-value use of this GPU tonight. Config does not exist yet;
+copy `configs/train_short24.yaml` with `width: 32` and a new seed, and launch it
+the same way (`SIH_NFFT=320 SIH_HOP=160`, tag `short32`).
 
 ### Two failures from the unattended night, both worth knowing
 

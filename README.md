@@ -347,12 +347,25 @@ far more margin.
 
 **Latency 40.99 ms** against a 32 ms target — **does not pass, and cannot** at
 this framing, because the delay before any arithmetic is the window length
-itself. A shorter window does pass, measured: 27.41 ms total at a 320-point
-window with width 24, exported and benchmarked through the same path
-(`results/bench_framing_probe.json`). That model is **training now**
-(`configs/train_short24.yaml`, started 24 Sep 05:45), so what the coarser
-frequency resolution costs in PESQ/STOI will be measured rather than guessed.
-See [Known limitations](#known-limitations).
+itself.
+
+**A shorter window does pass, and the model to prove it is now trained.**
+`short24` (320-point window, 160 hop, width 24) measures **25.54 ms total and
+RTF 0.437 — both targets, the first model here to clear them** — with the
+overlap-add delay cross-correlated at exactly 10.00 ms and a worst frame of
+8.26 ms against a 10 ms deadline.
+
+It costs quality, and the cost is measured rather than argued: paired per clip
+against `fresh32`, **PESQ −0.173**, STOI −0.016, output SNR −1.01 dB, and
+−1.15 dB of gunfire suppression inside the bursts, all at p < 1e-9. Most
+pointedly, **per-category STOI stops passing** — artillery 0.840 and babble
+0.836 — while the whole-set average still reads a comfortable 0.862.
+
+The honest statement of the trade: **41 ms at PESQ 2.124, or 26 ms at PESQ
+1.952.** Note also that `short24` changed the window *and* the width (103K →
+55K params), so the split between those two causes is not yet known; a width-32
+run at the same window is the experiment that separates them, and now looks
+affordable on RTF. See [Known limitations](#known-limitations).
 
 Width was chosen on this measurement, not by preference: width 16 → RTF 0.286,
 width 32 → 0.482, width 48 → 0.708 (worst frame 16.8 ms). 32 is the widest that
@@ -396,7 +409,8 @@ width and are read from the graph — never hardcode them.
 
 | File | Width / params | Trained on | Use it for |
 |---|---|---|---|
-| `artifacts/model_fresh32_simple.onnx` | 32 / 103,381 | as `combat32`, but from scratch, 170 epochs, mixtures redrawn every epoch | **best model; use this** |
+| `artifacts/model_fresh32_simple.onnx` | 32 / 103,381 | as `combat32`, but from scratch, 170 epochs, mixtures redrawn every epoch | **best quality; use this** |
+| `artifacts/model_short24_simple.onnx` | 24 / 54,597 | same data, 320-point window / 10 ms chunks | **only model under 32 ms latency** (25.54 ms, RTF 0.437) — costs 0.17 PESQ |
 | `artifacts/model_combat32_simple.onnx` | 32 / 103,381 | synthetic defence mixtures + real combat audio | previous best; still best on benchmark PESQ/SNR |
 | `artifacts/model_wide32_simple.onnx` | 32 / 103,381 | synthetic defence mixtures only | ablation: what real audio added |
 | `artifacts/model_simple.onnx` (= `model.onnx`) | 16 / 48,245 | synthetic defence mixtures, fine-tuned from DNS3 | the current **shipped** deliverable |
@@ -1055,19 +1069,26 @@ that admits them.
    the 48K model). No faster processor fixes the 32 ms floor, because it is not
    a compute cost.
 
-   **The fix is built and measured, not yet trained.** The STFT size is a
-   parameter now (`SIH_NFFT` / `SIH_HOP`, unset = the shipped 512/256), and an
-   untrained width-24 model exported at 320/160 measures **27.41 ms total, RTF
-   0.53 on a busy machine** (~0.39 idle) — both targets, for the first time in
-   this project. Speed transfers from an untrained export because per-frame time
-   depends on the graph and not on the weights in it; quality does not, so the
-   only honest statement today is that latency is solvable and the cost in
-   PESQ/STOI is unmeasured. The retrain is `configs/train_short24.yaml`, and it
-   changes the agreed chunk size from 16 ms to 10 ms — a contract change the
-   hardware team has to accept.
+   **The fix is trained and measured: `short24`.** The STFT size is a parameter
+   now (`SIH_NFFT` / `SIH_HOP`, unset = the shipped 512/256), and a width-24
+   model trained at 320/160 measures **25.54 ms total and RTF 0.437 — both
+   targets, the first model here to clear them.**
 
-1b. **PESQ and output SNR miss their targets as a whole-set average** — 2.106
-   against 2.5, and 11.72 dB against 15 dB. Both pass from 10 dB input SNR
+   It is not free. Paired per clip against `fresh32`: PESQ −0.173, STOI −0.016,
+   output SNR −1.01 dB, burst SI-SDR −1.15 dB, all p < 1e-9 — and **per-category
+   STOI stops passing** (artillery 0.840, babble 0.836) while the whole-set
+   average still reads 0.862. It also changes the agreed chunk size from 16 ms
+   to 10 ms, which is a contract change the hardware team has to accept.
+
+   Attribution is incomplete: `short24` changed the window *and* the width
+   (103K → 55K params), because an untrained probe suggested width 32 would
+   exceed the RTF budget at a 10 ms hop. The trained width-24 model measures RTF
+   0.437 *under load*, so that estimate was too pessimistic — a width-32 run at
+   320/160 is the experiment that splits "shorter window" from "smaller model",
+   and it has not been run.
+
+1b. **PESQ and output SNR miss their targets as a whole-set average** — 2.124
+   against 2.5, and 11.78 dB against 15 dB. Both pass from 10 dB input SNR
    upward, and output SNR passes on VoiceBank-DEMAND (17.52 dB). The gap sits
    entirely in the low-input-SNR clips, where gunfire is louder than the talker.
 

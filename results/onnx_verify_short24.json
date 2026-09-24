@@ -1,0 +1,12 @@
+{
+ "checkpoint": "/mnt/c/Users/Ayushi Kundu/OneDrive/Desktop/SIH_2026/checkpoints/short24_best.pt",
+ "onnx": "/mnt/c/Users/Ayushi Kundu/OneDrive/Desktop/SIH_2026/artifacts/model_short24_simple.onnx",
+ "max_abs_diff": 1.1175870895385742e-07,
+ "rel_to_rms": 1.8134313677364844e-06,
+ "match": true,
+ "frames": 977,
+ "ms_p50": 3.64855800580699,
+ "ms_p95": 4.966081399470568,
+ "ms_mean": 3.8620384474427456,
+ "rtf": 0.38620384474427455
+}

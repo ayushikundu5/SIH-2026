@@ -1,6 +1,6 @@
 # Results - vbd_onnx
 
-- generated: 2026-09-24T00:13:19+00:00
+- generated: 2026-09-24T13:11:28+00:00
 - git: `not-a-repo`
 - test set: `C:\SIH26052_data\voicebank_demand` (frozen, seed None)
 - device: `cpu`
@@ -18,6 +18,7 @@ Targets: PESQ > 2.5 (scored on WIDEBAND PESQ; narrowband shown for reference), S
 | `onnx:artifacts/model_combat32_simple.onnx` | 2.334 | 3.180 | 0.911 | +9.10 | +17.52 | +9.08 | 0.6967 | PESQFAIL STOIPASS SNRoutPASS SNRgainFAIL RTFFAIL |
 | `onnx:artifacts/model_fresh32_simple.onnx` | 2.306 | 3.258 | 0.917 | +8.58 | +17.02 | +8.57 | 0.7265 | PESQFAIL STOIPASS SNRoutPASS SNRgainFAIL RTFFAIL |
 | `onnx:artifacts/model_lowsnr_simple.onnx` | 2.420 | 3.218 | 0.919 | +8.30 | +16.82 | +8.38 | 0.5036 | PESQFAIL STOIPASS SNRoutPASS SNRgainFAIL RTFFAIL |
+| `onnx:artifacts/model_short24_simple.onnx` | 2.179 | 3.088 | 0.905 | +7.85 | +16.08 | +7.64 | 0.6477 | PESQFAIL STOIPASS SNRoutPASS SNRgainFAIL RTFFAIL |
 | `onnx:artifacts/model_simple.onnx` | 2.387 | 3.252 | 0.921 | +7.83 | +16.34 | +7.90 | 0.5364 | PESQFAIL STOIPASS SNRoutPASS SNRgainFAIL RTFFAIL |
 | `onnx:artifacts/model_wide32_simple.onnx` | 2.111 | 3.077 | 0.903 | +7.39 | +15.91 | +7.46 | 0.7144 | PESQFAIL STOIPASS SNRoutPASS SNRgainFAIL RTFFAIL |
 | `unprocessed` | 1.968 | 2.879 | 0.921 | +0.00 | +8.45 | +0.00 | 0.0000 | PESQFAIL STOIPASS SNRoutFAIL SNRgainFAIL RTFPASS |
@@ -46,6 +47,11 @@ Targets: PESQ > 2.5 (scored on WIDEBAND PESQ; narrowband shown for reference), S
 | `onnx:artifacts/model_lowsnr_simple.onnx` | 5-10 dB | 209 | 2.327 | 3.140 | 0.916 | +16.29 | +9.93 |
 | `onnx:artifacts/model_lowsnr_simple.onnx` | 10-15 dB | 206 | 2.570 | 3.411 | 0.936 | +18.00 | +6.77 |
 | `onnx:artifacts/model_lowsnr_simple.onnx` | >15 dB | 191 | 2.826 | 3.595 | 0.950 | +19.45 | +3.38 |
+| `onnx:artifacts/model_short24_simple.onnx` | <0 dB | 16 | 1.855 | 2.783 | 0.791 | +14.13 | +14.76 |
+| `onnx:artifacts/model_short24_simple.onnx` | 0-5 dB | 202 | 1.916 | 2.715 | 0.878 | +13.38 | +12.09 |
+| `onnx:artifacts/model_short24_simple.onnx` | 5-10 dB | 209 | 2.142 | 3.039 | 0.905 | +15.73 | +9.38 |
+| `onnx:artifacts/model_short24_simple.onnx` | 10-15 dB | 206 | 2.277 | 3.249 | 0.917 | +17.15 | +5.92 |
+| `onnx:artifacts/model_short24_simple.onnx` | >15 dB | 191 | 2.416 | 3.387 | 0.930 | +18.34 | +2.27 |
 | `onnx:artifacts/model_simple.onnx` | <0 dB | 16 | 1.876 | 2.818 | 0.787 | +14.60 | +15.22 |
 | `onnx:artifacts/model_simple.onnx` | 0-5 dB | 202 | 2.027 | 2.783 | 0.887 | +13.49 | +12.21 |
 | `onnx:artifacts/model_simple.onnx` | 5-10 dB | 209 | 2.307 | 3.164 | 0.918 | +15.68 | +9.33 |
@@ -72,6 +78,7 @@ The >15 dB target is only reachable in the low-input-SNR regime; at high input S
 | `onnx:artifacts/model_combat32_simple.onnx` | +16.59 (n=16) | +13.55 (n=202) | +10.87 (n=209) | +7.38 (n=206) | +3.59 (n=191) |
 | `onnx:artifacts/model_fresh32_simple.onnx` | +15.45 (n=16) | +13.09 (n=202) | +10.34 (n=209) | +6.67 (n=206) | +3.35 (n=191) |
 | `onnx:artifacts/model_lowsnr_simple.onnx` | +15.69 (n=16) | +12.55 (n=202) | +9.93 (n=209) | +6.77 (n=206) | +3.38 (n=191) |
+| `onnx:artifacts/model_short24_simple.onnx` | +14.76 (n=16) | +12.09 (n=202) | +9.38 (n=209) | +5.92 (n=206) | +2.27 (n=191) |
 | `onnx:artifacts/model_simple.onnx` | +15.22 (n=16) | +12.21 (n=202) | +9.33 (n=209) | +6.03 (n=206) | +3.18 (n=191) |
 | `onnx:artifacts/model_wide32_simple.onnx` | +14.77 (n=16) | +11.74 (n=202) | +9.05 (n=209) | +5.74 (n=206) | +2.46 (n=191) |
 | `unprocessed` | +0.00 (n=16) | +0.00 (n=202) | +0.00 (n=209) | +0.00 (n=206) | +0.00 (n=191) |
