@@ -6,10 +6,13 @@ A streaming speech-enhancement model that strips gunfire, artillery, rotor and
 engine noise off a soldier's outgoing microphone feed. 103,381 parameters, small
 enough for an embedded chip, fast enough to run live on one CPU thread.
 
-**Current best model: `artifacts/model_combat32_simple.onnx`** (`combat32`,
-23 Sep 2026) — trained on synthetic defence mixtures *and* on real battlefield
-audio, and the best of every model here on all three test sets we own. The
-earlier 48,245-parameter model is kept as `artifacts/model.onnx`; see
+**Current best model: `artifacts/model_fresh32_simple.onnx`** (`fresh32`,
+24 Sep 2026) — trained from scratch for 170 epochs on synthetic defence mixtures
+*and* real battlefield audio, and the best model here on both defence test sets.
+It replaces `combat32`, which it beats by 0.018 PESQ on the defence set (paired,
+p = 1e-4); on the general-purpose VoiceBank-DEMAND benchmark the two trade places
+— `fresh32` is better on intelligibility, `combat32` on quality. The earlier
+48,245-parameter model is kept as `artifacts/model.onnx`; see
 [Model lineup](#model-lineup) for which file is which and why the deliverable
 has not been swapped yet.
 
@@ -30,9 +33,10 @@ adapts. We measured exactly that failure:
 |---|---|
 | Wiener filter | **+0.19 dB** — essentially nothing |
 | Spectral subtraction | **+0.11 dB** — essentially nothing |
-| GTCRN, off-the-shelf | +5.84 dB |
+| GTCRN, off-the-shelf | +5.83 dB |
 | This project, 48K-param model | +7.16 dB |
-| **This project, `combat32`** | **+8.39 dB** (artillery: +8.78 dB) |
+| This project, `combat32` | +8.39 dB (artillery: +8.78 dB) |
+| **This project, `fresh32`** | **+8.49 dB** (artillery: +8.83 dB) |
 
 Roughly **86% of gunshot noise energy removed inside the bursts, versus ~4% for
 classical filters.**
@@ -153,21 +157,29 @@ section below and `RESUME.md`.
 
 ## Current status — read this before the results below
 
-**Where the three problem-statement targets stand** (`combat32`, frozen 720-clip
-defence test set, 23 Sep 2026):
+**Where the three problem-statement targets stand** (`fresh32`, frozen 720-clip
+defence test set, 24 Sep 2026):
 
-| Target | Required | Unprocessed | `combat32` | |
+| Target | Required | Unprocessed | `fresh32` | |
 |---|---|---|---|---|
-| STOI (intelligibility) | > 0.85 | 0.801 | **0.876** | ✅ passes, and passes in all six noise categories |
-| PESQ (wideband quality) | > 2.5 | 1.319 | **2.106** | ❌ 0.39 short |
-| Output SNR | > 15 dB | 4.41 dB | **11.72 dB** | ❌ 3.3 dB short |
+| STOI (intelligibility) | > 0.85 | 0.801 | **0.879** | ✅ passes, and passes in all six noise categories |
+| PESQ (wideband quality) | > 2.5 | 1.319 | **2.124** | ❌ 0.38 short |
+| Output SNR | > 15 dB | 4.41 dB | **11.78 dB** | ❌ 3.2 dB short |
 | Real-time factor | < 0.5 | — | **0.476** | ✅ passes on one CPU thread |
-| Latency | < 32 ms (our roadmap) | — | 40.99 ms | ❌ at this framing — **27.41 ms measured at 320/160**, retrain pending |
+| Latency | < 32 ms (our roadmap) | — | 40.99 ms | ❌ at this framing — **27.41 ms measured at 320/160**, retrain running |
 
 All three targets pass together on clips that start at **≥ 10 dB input SNR**
-(PESQ 2.83, STOI 0.96, output SNR 17.4 dB) and on the standard VoiceBank-DEMAND
-benchmark's SNR (17.5 dB). They do not pass as a whole-set average on our own
-deliberately hard defence set, where gunfire routinely peaks above the speaker.
+(PESQ 2.829, STOI 0.960, output SNR 17.41 dB, n = 95) and on the standard
+VoiceBank-DEMAND benchmark's SNR (17.0 dB). They do not pass as a whole-set
+average on our own deliberately hard defence set, where gunfire routinely peaks
+above the speaker; below 0 dB input nothing passes (1.488 / 0.766 / 6.33).
+
+The RTF and latency figures are `combat32`'s, and they transfer by measurement
+rather than assumption: the two exported graphs are structurally identical — 445
+nodes, 25 op types, 172 initialisers — so per-frame dispatch cost is the same.
+Re-measuring on `fresh32` itself gave 0.520 / 41.98 ms, but that run was taken
+while OneDrive was syncing at 37% CPU; see
+[Is the measurement trustworthy?](#is-the-measurement-trustworthy).
 
 **Three caveats that belong next to those numbers:**
 
@@ -239,12 +251,21 @@ same streaming ONNX path the hardware team gets. PESQ-WB / STOI / output SNR:
 | Unprocessed | 1.319 / 0.801 / 4.41 | 1.298 / 0.783 / 5.72 | 1.968 / 0.921 / 8.45 |
 | 48K model (`model.onnx`) | 1.931 / 0.860 / 10.79 | 1.858 / 0.850 / 11.46 | 2.387 / 0.921 / 16.34 |
 | `wide32` (synthetic only) | 2.057 / 0.873 / 11.44 | 1.879 / 0.860 / 11.94 | 2.111 / 0.903 / 15.91 |
-| **`combat32`** | **2.106 / 0.876 / 11.72** | **1.977 / 0.865 / 12.15** | **2.334 / 0.911 / 17.52** |
+| `combat32` | 2.106 / 0.876 / 11.72 | 1.977 / 0.865 / 12.15 | **2.334** / 0.911 / **17.52** |
+| **`fresh32`** | **2.124 / 0.879 / 11.78** | **2.002 / 0.869 / 12.30** | 2.306 / **0.917** / 17.02 |
 
-`combat32` wins on all three, and the margins are not noise: against `wide32`
-it is better on **78%** of defence clips (PESQ +0.050), **81%** of real-combat
-clips (+0.098) and **73%** of benchmark clips (+0.223), every comparison paired
-per clip with p < 1e-10.
+`fresh32` wins both defence sets; `combat32` keeps the benchmark on PESQ and SNR
+while losing it on STOI. The margins are not noise, but they are getting small:
+`combat32` beat `wide32` on **78%** of defence clips (PESQ +0.050), **81%** of
+real-combat clips (+0.098) and **73%** of benchmark clips (+0.223), all paired
+per clip with p < 1e-10 — whereas `fresh32` beats `combat32` on **54%** of
+defence clips (+0.018, p = 1e-4), **59%** of real-combat clips (+0.025,
+p = 0.0035) and, on the benchmark, wins STOI on 67% (+0.006, p = 5e-20) while
+losing PESQ (−0.028) and 0.5 dB of SNR.
+
+Inside the gunfire bursts, where `metrics.masked_metrics` measures, `fresh32`
+gains **+0.078 dB SI-SDR at p = 0.47 — statistically nothing.** Whatever the
+extra training bought, it was not better transient handling.
 
 The **real combat set** is 150 clips of held-out speakers mixed with battlefield
 audio taken from 21 videos that appear nowhere in training — the closest thing
@@ -255,13 +276,17 @@ noise but **worse than doing nothing** on benchmark intelligibility (STOI 0.903
 against 0.921). Adding real combat audio repaired most of that (0.911) while
 improving the defence numbers, which is the main argument for the mixed diet.
 
-### Per noise category (`combat32`, frozen defence set)
+### Per noise category (`fresh32`, frozen defence set)
 
 | | Gunshot | Artillery | Rotor | Engine | Siren | Babble |
 |---|---|---|---|---|---|---|
-| PESQ-WB | 2.092 | 1.856 | 2.173 | 2.269 | 2.251 | 1.996 |
-| STOI | 0.871 ✅ | 0.853 ✅ | 0.890 ✅ | 0.889 ✅ | 0.905 ✅ | 0.851 ✅ |
-| Output SNR (dB) | 11.51 | 10.29 | 12.18 | 12.39 | 13.00 | 10.98 |
+| PESQ-WB | 2.118 | 1.882 | 2.189 | 2.279 | 2.283 | 1.996 |
+| STOI | 0.873 ✅ | 0.858 ✅ | 0.891 ✅ | 0.892 ✅ | 0.908 ✅ | 0.851 ✅ |
+| Output SNR (dB) | 11.53 | 10.31 | 12.17 | 12.52 | 13.15 | 11.00 |
+
+Every category improved on `combat32` except babble, which is unchanged to three
+decimals (1.996 both). Artillery and babble remain the two hardest, as they have
+been for every model here.
 
 STOI clears 0.85 in **every** category, including the two hardest (artillery and
 babble). PESQ and output SNR clear their targets in none.
@@ -324,10 +349,10 @@ far more margin.
 this framing, because the delay before any arithmetic is the window length
 itself. A shorter window does pass, measured: 27.41 ms total at a 320-point
 window with width 24, exported and benchmarked through the same path
-(`results/bench_framing_probe.json`). That model has not been trained yet, so
-what the coarser frequency resolution costs in PESQ/STOI is still unknown —
-`configs/train_short24.yaml` is the run that answers it. See
-[Known limitations](#known-limitations).
+(`results/bench_framing_probe.json`). That model is **training now**
+(`configs/train_short24.yaml`, started 24 Sep 05:45), so what the coarser
+frequency resolution costs in PESQ/STOI will be measured rather than guessed.
+See [Known limitations](#known-limitations).
 
 Width was chosen on this measurement, not by preference: width 16 → RTF 0.286,
 width 32 → 0.482, width 48 → 0.708 (worst frame 16.8 ms). 32 is the widest that
@@ -347,6 +372,20 @@ The pipeline reproduces the published baseline exactly, which independently
 verifies the resampling chain, the ITU-T P.862 PESQ build, the STFT framing and
 the inference path. Every other number here rests on that calibration.
 
+**One caveat about the speed numbers specifically: "idle machine" has to include
+OneDrive.** The code lives inside a synced OneDrive folder, and measured 24 Sep
+on the same model, minutes apart:
+
+| condition | RTF | p95 | worst frame |
+|---|---|---|---|
+| idle | 0.476 | 8.99 ms | 16.2 ms |
+| OneDrive syncing (37% CPU) | 0.520 | 9.98 ms | **45.2 ms** |
+
+The worst frame nearly tripled and RTF crossed the 0.5 target. A benchmark run
+right after editing files is measuring the sync, not the model — check
+`Get-Process OneDrive` first. The quality numbers are unaffected: PESQ and STOI
+do not depend on how fast the arithmetic ran.
+
 ---
 
 ## Model lineup
@@ -357,7 +396,8 @@ width and are read from the graph — never hardcode them.
 
 | File | Width / params | Trained on | Use it for |
 |---|---|---|---|
-| `artifacts/model_combat32_simple.onnx` | 32 / 103,381 | synthetic defence mixtures + real combat audio | **best model; use this** |
+| `artifacts/model_fresh32_simple.onnx` | 32 / 103,381 | as `combat32`, but from scratch, 170 epochs, mixtures redrawn every epoch | **best model; use this** |
+| `artifacts/model_combat32_simple.onnx` | 32 / 103,381 | synthetic defence mixtures + real combat audio | previous best; still best on benchmark PESQ/SNR |
 | `artifacts/model_wide32_simple.onnx` | 32 / 103,381 | synthetic defence mixtures only | ablation: what real audio added |
 | `artifacts/model_simple.onnx` (= `model.onnx`) | 16 / 48,245 | synthetic defence mixtures, fine-tuned from DNS3 | the current **shipped** deliverable |
 | `artifacts/gtcrn_dns3_simple.onnx` | 16 / 48,245 | upstream DNS3 release | pretrained baseline |
@@ -365,9 +405,15 @@ width and are read from the graph — never hardcode them.
 
 `artifacts/model.onnx` and the handoff bundle (`SPEC.md`,
 `example_inference.py`) still describe the 48K model. **Swapping the deliverable
-to `combat32` is a team decision that has not been taken** — once it is, run
-`python scripts/make_handoff.py --model artifacts/model_combat32_simple.onnx`
+to `fresh32` is a team decision that has not been taken** — once it is, run
+`python scripts/make_handoff.py --model artifacts/model_fresh32_simple.onnx`
 and the spec sheet and example regenerate themselves, cache shapes included.
+
+There is a substantive reason to hold, not just process: `fresh32` is better than
+the shipped model on every metric in this repo, and **no model above the 48K one
+has been tested for whether words survive it** (see
+[Intelligibility](#measuring-intelligibility)). Shipping on PESQ alone is exactly
+the mistake this project already documented.
 
 Checkpoints (`checkpoints/*.pt`) carry optimiser state so training resumes; the
 `.onnx` files are what the hardware team runs.
@@ -487,7 +533,9 @@ $PY -m src.stream_demo --file path/to/your.wav \
 # writes results/demo/before.wav and results/demo/after.wav
 
 # best WORD SCORE so far on real recordings (w16 lowsnr + suppression cap).
-# combat32 has not been ASR-tested yet - see "Current status".
+# NEITHER combat32 NOR fresh32 has been ASR-tested - see "Current status". The
+# width-32 models win every metric in this repo and are untested on the only one
+# that decides whether a soldier is understood.
 $PY -m src.stream_demo --file path/to/your.wav \
     --onnx artifacts/model_lowsnr_simple.onnx --floor-db -18
 

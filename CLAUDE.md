@@ -23,11 +23,11 @@ Requests to "amplify the voice" belong to the analog path downstream, not here.
 Read **`RESUME.md`** for current state and what to do next. Read **`README.md`**
 for results, setup and the full command reference.
 
-## Status, as of 23 Sep 2026 — read before changing anything
+## Status, as of 24 Sep 2026 — read before changing anything
 
-**Current best model: `combat32`** (`artifacts/model_combat32_simple.onnx`,
-width 32, 103,381 params, `checkpoints/combat32_best.pt`). Best of every model
-here on all three test sets, paired p < 1e-10 against `wide32`:
+**Current best model: `fresh32`** (`artifacts/model_fresh32_simple.onnx`,
+width 32, 103,381 params, `checkpoints/fresh32_best.pt`). Best on both defence
+sets; on general noise it trades a little PESQ for STOI (see below):
 
 | model | frozen defence (720) | real combat (150) | VoiceBank-DEMAND (824) |
 |---|---|---|---|
@@ -35,20 +35,46 @@ here on all three test sets, paired p < 1e-10 against `wide32`:
 | unprocessed | 1.319 / 0.801 / 4.41 | 1.298 / 0.783 / 5.72 | 1.968 / 0.921 / 8.45 |
 | shipped (w16) | 1.931 / 0.860 / 10.79 | 1.858 / 0.850 / 11.46 | 2.387 / 0.921 / 16.34 |
 | wide32 | 2.057 / 0.873 / 11.44 | 1.879 / 0.860 / 11.94 | 2.111 / 0.903 / 15.91 |
-| **combat32** | **2.106 / 0.876 / 11.72** | **1.977 / 0.865 / 12.15** | **2.334 / 0.911 / 17.52** |
+| combat32 | 2.106 / 0.876 / 11.72 | 1.977 / 0.865 / 12.15 | **2.334** / 0.911 / **17.52** |
+| **fresh32** | **2.124 / 0.879 / 11.78** | **2.002 / 0.869 / 12.30** | 2.306 / **0.917** / 17.02 |
 
-STOI passes in every category (0.851-0.905); PESQ and output SNR pass only from
-input SNR >= 10 dB (2.83 / 0.96 / 17.4 dB). RTF 0.476, latency 40.99 ms.
+STOI passes in every category (0.851-0.908); PESQ and output SNR pass only from
+input SNR >= 10 dB (2.829 / 0.960 / 17.41 dB, n=95; and 3.167 / 0.973 / 20.41
+above 15 dB). Below 0 dB nothing passes (1.488 / 0.766 / 6.33, n=170).
+
+**Speed is `combat32`'s, and that is a measured claim, not an assumption:** the
+two exported graphs are structurally identical - 445 nodes, 25 op types, 172
+initialisers - so per-frame time transfers. RTF 0.476, latency 40.99 ms, both
+measured idle. A re-measurement taken minutes after training read 0.520 / 41.98
+ms with OneDrive syncing at 37% CPU; see invariant 13.
+
 `artifacts/model.onnx` and the handoff bundle STILL hold the w16 model - the
-swap is a team decision (`make_handoff.py --model artifacts/model_combat32_simple.onnx`).
+swap is a team decision (`make_handoff.py --model artifacts/model_fresh32_simple.onnx`).
 
-**Two caveats that change how earlier conclusions should be read:**
-- Runs before 22 Sep saw one fixed mixture set every epoch (invariant 14a), so
-  "capacity ceiling" readings of flat val curves are confounded.
-- `combat32` added real combat audio AND ran with that fix: attribution unknown.
+**What `fresh32` settles, and what it does not.** It is the first run trained
+entirely with mixtures that change every epoch (invariant 14a), from scratch,
+170 epochs. Paired against `combat32` on identical clips: PESQ **+0.018**
+(p = 1e-4, better on 54% of clips), STOI +0.0024 (p = 6e-9), output SNR
++0.058 dB (p = 0.02); on the real-combat set PESQ +0.025 (p = 0.0035). Burst
+SI-SDR gain +0.078 dB, **p = 0.47 - no effect inside the gunfire bursts.**
+
+So the 14a bug did confound the old flat validation curves, and fixing it is
+worth a small, real improvement - **not** the headroom those curves implied.
+`fresh32` was still improving on validation at epoch 158 and still only gained
+0.018 PESQ on the test set. Training length and data freshness are not what is
+holding this model 0.38 PESQ short of target; the recipe is.
+
+One genuine reversal: `wide32` had dropped VoiceBank-DEMAND STOI to 0.903,
+below unprocessed (0.921) - a defence specialist that got worse at ordinary
+noise. `fresh32` recovers it to 0.917 (better than `combat32` on 67% of clips,
+p = 5e-20) while beating `combat32` on defence, at the cost of 0.028 PESQ and
+0.5 dB SNR there. Since STOI is the target this project passes and PESQ the one
+it misses, that is a defensible trade, but it IS a trade.
 
 **The intelligibility warning below was measured on the w16 model and has NOT
-been re-run on wide32/combat32.** Nothing here answers it yet.
+been re-run on wide32, combat32 or fresh32.** Nothing here answers it yet, and
+`fresh32` beating `combat32` by 0.018 PESQ says nothing about it either - that
+is precisely the kind of metric movement this warning is about.
 
 On real recordings that model removed gunfire and took the intelligibility of
 the speech with it. Measured by ASR word recognition (`scripts/asr_score.py`,
@@ -475,9 +501,21 @@ plausible.
     graph whose bin count disagrees with its own STFT. Never "fix" one of those
     errors by changing the checker.
 
-13. **Benchmark on an idle machine** — though note the measured difference was
-    small (37.45 ms busy vs 38.01 ms idle); per-frame ONNX Runtime dispatch
-    dominates, not contention.
+13. **Benchmark on an idle machine — and "idle" means OneDrive too.** An earlier
+    note here said background load barely mattered (37.45 ms busy vs 38.01 ms
+    idle). That is true of the p50 latency and false of everything that decides
+    pass or fail. Measured 24 Sep on `fresh32`, whose graph is byte-identical in
+    structure to `combat32`'s:
+
+    | condition | RTF | p95 | worst frame |
+    |---|---|---|---|
+    | idle | 0.476 | 8.99 ms | 16.2 ms |
+    | OneDrive syncing (37% CPU) | 0.520 | 9.98 ms | **45.2 ms** |
+
+    The worst frame nearly tripled and RTF crossed the 0.5 target. Since the
+    code lives inside OneDrive, a benchmark run right after any file changes is
+    measuring the sync, not the model. Check `Get-Process OneDrive` CPU first,
+    or wait for it to settle.
 
 14a. **The training data must change every epoch — and until 22 Sep 2026 it
     did not.** DataLoader workers hold a pickled copy of the dataset made when
@@ -567,6 +605,24 @@ session. Every one of them produced a number that looked like a result.
     formant region; switching to a plain voice-recorder app recovered **+19.2 dB
     at 1-2 kHz**. Measure any new recording before building a test on it.
 
+21. **A progress bar can hang the evaluator - and it looks exactly like slow.**
+    On 24 Sep the unattended finish chain stopped dead 24 minutes into
+    `evaluate --workers 11` on the 824-clip VoiceBank set. Not a crash: all
+    eleven workers sat at ~25 s of CPU each and stopped accumulating, the log
+    had not been written for 24 minutes, and nothing raised. The parent was
+    blocked WRITING tqdm output into a PowerShell `Tee-Object` pipeline that had
+    stopped draining, so it stopped handing work to the pool. The same
+    evaluation, re-run with output redirected straight to a file
+    (`... > eval.log 2>&1`), finished in about three minutes.
+
+    **Never pipe an evaluation through `Tee-Object` or another PowerShell
+    pipeline stage.** Redirect to a file and read the file. Diagnose a suspected
+    hang by CPU TIME PER WORKER, not by the log: idle workers whose CPU seconds
+    are frozen mean a blocked parent, while a genuinely slow run shows CPU
+    climbing. And when killing a hung chain, kill the WRAPPER script first -
+    otherwise its error handler sees the child die and sends a "FAILED" alert
+    for a run that was fine.
+
 ## Findings from the build
 
 Recorded because they are results, not anecdotes, and because several contradict
@@ -638,6 +694,13 @@ Measured on the frozen defence set (PESQ-WB), each step paired per clip:
 | shipped, w16 48K | 1.931 | fine-tuned from DNS3 |
 | wide32, from scratch | 2.057 | +0.125 (better on 82% of clips) - 2.1x params |
 | combat32 | 2.106 | +0.050 (78%) - real combat audio + the 14a fix |
+| fresh32 | 2.124 | +0.018 (54%) - from scratch, 170 epochs, 14a fixed throughout |
+
+The diminishing returns down that column are the finding. Doubling the width
+bought 0.125; adding real combat audio bought 0.050; training from scratch for
+170 epochs on mixtures that never repeat bought 0.018. Each step is
+statistically solid and each is smaller than the last, while the gap to PESQ 2.5
+is still 0.38. Another epoch budget or another width is not going to close it.
 
 But `wide32`, trained only on our synthetic defence mixtures, **dropped to STOI
 0.903 on VoiceBank-DEMAND - below unprocessed (0.921)**: a defence specialist

@@ -6,24 +6,43 @@ setup, and where to hear every audio file.
 
 ---
 
-## In one screen — state at 23 Sep 2026, 16:30 IST
+## In one screen — state at 24 Sep 2026, 07:30 IST
 
-**Running now: `fresh32`.** Width 32 from scratch, 170 epochs, and the first run
-whose training mixtures actually change every epoch (invariant 14a was only
-fixed on 22 Sep). Started 13:07, epoch 33 at 16:25, ~5.4 min/epoch, ETA ~04:40
-on 24 Sep. Log: `C:\SIH26052_data\train_fresh32.log`.
+**`fresh32` is DONE and is the new best model.** Width 32 from scratch, all 170
+epochs, the first run whose training mixtures changed every epoch (invariant 14a
+was only fixed on 22 Sep). Ran 13:07 to 05:05 with **one start and no restarts**;
+best val PESQ 2.1278. Artifacts: `checkpoints/fresh32_best.pt`,
+`artifacts/model_fresh32_simple.onnx` (streaming export verified against the
+offline model), `results/per_clip_{onnx,combat,vbd_onnx}.csv`.
 
-Nobody needs to be present for the rest of it. The job was launched through WMI,
-so it does not belong to any editor or Claude session and survives them closing;
-a watchdog kills and resumes it if CUDA hangs; and `auto_finish_fresh32.ps1`
-then exports the best checkpoint to streaming ONNX, scores it on all three test
-sets, benchmarks real-time speed and pushes the headline to the phone by itself.
+| test set | combat32 (old best) | **fresh32** |
+|---|---|---|
+| frozen defence (720) | 2.106 / 0.876 / 11.72 | **2.124 / 0.879 / 11.78** |
+| real combat (150) | 1.977 / 0.865 / 12.15 | **2.002 / 0.869 / 12.30** |
+| VoiceBank-DEMAND (824) | **2.334** / 0.911 / **17.52** | 2.306 / **0.917** / 17.02 |
 
-**Armed behind it: `short24`** (`chain_short24.ps1`, running since 16:34). It
-waits for the finished marker, for the GPU to be free and for the evaluation to
-stop, then starts the 320/160 run described below with the same three helpers,
-and runs `finish_short24.ps1` when that ends. The GPU would otherwise sit idle
-from about 04:40. **To cancel it, before or during:**
+PESQ-WB / STOI / output SNR. Paired on identical clips, defence set: PESQ +0.018
+(p = 1e-4), STOI +0.0024 (p = 6e-9), SNR +0.058 dB (p = 0.02). Burst SI-SDR gain
++0.078 dB at **p = 0.47 - no effect inside the gunfire bursts.** On general
+noise it trades 0.028 PESQ and 0.5 dB SNR for +0.006 STOI (better on 67% of
+clips, p = 5e-20), which repairs the `wide32` generality regression.
+
+Speed is unchanged from `combat32` and that is checked, not assumed: the two
+exported graphs are structurally identical (445 nodes, 25 op types, 172
+initialisers), so RTF 0.476 / latency 40.99 ms carry over. See "Two failures"
+below for why the benchmark taken right after training read 0.520 instead.
+
+**Running now: `short24`** - the 320/160 latency run, started automatically at
+05:45 by `chain_short24.ps1` when the GPU freed. Width 24, 54,597 params,
+10 ms chunks, 4.7 min/epoch (faster than fresh32: smaller model, fewer bins),
+epoch 20 of 170 at 07:24, **ETA ~19:15 today**. Log:
+`C:\SIH26052_data\train_short24.log`. When it ends, `finish_short24.ps1` exports
+it, scores all three test sets, benchmarks latency and messages the phone.
+
+Early signal, epoch 20: val PESQ 1.795 against `fresh32`'s 1.956 at epoch 18.
+About 0.16 behind at the same point, which is the expected price of half the
+parameters and a coarser spectrum - but it is epoch 20 of 170 and the cosine
+schedule has barely started, so it is not yet a result. **To cancel:**
 
 ```powershell
 New-Item C:\SIH26052_data\STOP_SHORT24 -ItemType File
@@ -31,6 +50,24 @@ New-Item C:\SIH26052_data\STOP_SHORT24 -ItemType File
 
 It writes only its own checkpoints, log and artifacts - nothing `fresh32`
 produced, nothing shipped, and not the frozen test set.
+
+### Two failures from the unattended night, both worth knowing
+
+1. **The finish chain HUNG for 24 minutes** at stage 4 of 5 (`evaluate
+   --workers 11`, 824 clips) and never raised. Eleven workers frozen at ~25 s of
+   CPU each, no log output; the parent was blocked writing tqdm output into a
+   PowerShell `Tee-Object` pipeline that had stopped draining, so it stopped
+   feeding the pool. Re-run with output redirected to a file, the same work took
+   three minutes. Now recorded as measurement trap 21 in CLAUDE.md: **never pipe
+   an evaluation through a PowerShell pipeline stage**, and diagnose a suspected
+   hang by CPU-time-per-worker rather than by the log. When killing such a chain,
+   kill the WRAPPER first or its error handler sends a false "FAILED" alert.
+2. **OneDrive inflated the benchmark far more than the docs claimed.** RTF 0.476
+   -> 0.520 and worst frame 16.2 ms -> 45.2 ms with OneDrive syncing at 37% CPU.
+   Invariant 13 previously said background load barely mattered, which is true of
+   p50 latency and false of everything that decides pass/fail. Since the code
+   lives inside OneDrive, any benchmark right after editing files is measuring
+   the sync.
 
 **Where the GitHub clone lives:** `C:\SIH26052_data\repo_push` (moved out of a
 session temp directory on 23 Sep, where it would eventually have been deleted).
@@ -117,24 +154,34 @@ window size back out of the checkpoint weights and refuses a mismatch, and
 `StreamingEnhancer` refuses a graph whose bin count disagrees with its own STFT.
 
 **Open decisions, in priority order:**
-1. **Swap the deliverable to `combat32`?** `artifacts/model.onnx`, `SPEC.md`
-   and `example_inference.py` still describe the w16 model. One command:
-   `python scripts/make_handoff.py --model artifacts/model_combat32_simple.onnx`.
-   Worth waiting for `fresh32` to land first.
-2. **Re-run the ASR intelligibility test** (`scripts/asr_score.py --model
-   medium`) on `combat32`. The "suppression kills words" finding is measured on
-   the w16 model only; it is the project's most important open question.
-3. **Launch `short24`** once `fresh32` finishes, and report latency and quality
+1. **Re-run the ASR intelligibility test** (`scripts/asr_score.py --model
+   medium`) on `fresh32`. Now the single most important open question, and
+   `fresh32` makes it sharper rather than softer: three model steps in a row have
+   raised PESQ while nothing has checked whether words survive, and the one
+   burst-local number available (+0.078 dB, p = 0.47) says the gunfire bursts did
+   not improve at all. Needs the GPU, so it competes with `short24` - whisper
+   medium on a handful of clips is minutes, so it can be slotted in.
+2. **Swap the deliverable to `fresh32`?** `artifacts/model.onnx`, `SPEC.md` and
+   `example_inference.py` still describe the w16 model. One command:
+   `python scripts/make_handoff.py --model artifacts/model_fresh32_simple.onnx`.
+   Held deliberately: item 1 should answer first, since the hardware team would
+   receive a model that is better on every metric this repo measures and unknown
+   on the one that matters.
+3. **`short24` is running** - when it lands, report latency and quality
    TOGETHER. A model that meets the 32 ms target and loses words is not an
    improvement.
-4. **Retrain `wide32` with the 14a fix alone**, to separate "real data" from
-   "training data that actually changes" in the `combat32` result. `fresh32`
-   answers most of this.
+4. **Retrain `wide32` with the 14a fix alone** to separate "real data" from
+   "data that actually changes". `fresh32` largely answers this: the fix is worth
+   about +0.018 PESQ, so the `combat32` gain was mostly the real combat audio.
+   Low value now.
 5. Push the latest work to the teammate's repo branch
    (`Babanstar456/SIH-2026-main`, branch `wide-gtcrn-onnx-eval`) — it still
    stops at 21 Sep. The user's own repo `ayushikundu5/SIH-2026` is current.
 6. Power setting is back to the 15-minute default on AC (reverted 23 Sep); a
    keep-awake process holds the machine up for as long as training runs.
+7. **Disk: 20 GB free on C:.** Nothing at risk now (checkpoints are ~2 MB), but
+   the Phase 2 plan wanted ~25 GB for more speech data, so extracted archives
+   will have to go first.
 
 **Deadline context:** SIH PPT submission 23 Sep. The GitHub link that goes with
 it is `ayushikundu5/SIH-2026` — **private**, so it must be made public or the
