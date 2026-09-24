@@ -1,0 +1,358 @@
+================================================================================
+TWO-MICROPHONE RECORDINGS  --  what we need, exactly
+SIH 2026, problem 26052 (DRDO), AI/ML workstream -- Phase 3
+================================================================================
+
+Please read this once fully before you start. It is long because four things can
+silently ruin a recording session, and we only find out weeks later when the
+data turns out to be unusable. Every "DO NOT" below is something that has
+already gone wrong once on this project and cost us a re-record.
+
+Time needed: about 60-75 minutes per session, one person recording, one or two
+speaking. You do not need any special equipment beyond two phones.
+
+
+--------------------------------------------------------------------------------
+1. WHY WE NEED THIS  (30 seconds of background, worth reading)
+--------------------------------------------------------------------------------
+
+Our model currently listens to ONE microphone and tries to work out which parts
+are voice and which are gunfire. It is good at it, but there is a hard limit: on
+a clip that only contains 5 dB of noise, no amount of cleverness extracts 15 dB
+of improvement. The problem statement asks for 15 dB.
+
+The helmet has TWO microphones: one inside, in front of the mouth, and one on
+top, which mostly hears the surroundings. If the model can hear the noise ON ITS
+OWN from the second mic, it can subtract it instead of guessing. That is the
+realistic route to the 15 dB target.
+
+To build that, we need recordings where the SAME moment was captured by a mic at
+the mouth AND a mic away from the mouth, at the same time. That is all this is:
+two phones recording together.
+
+We cannot fake this. We tried simulating the second microphone in software, and
+the result only tells us how good our simulation is, not how good the method is.
+
+
+--------------------------------------------------------------------------------
+2. WHAT YOU NEED
+--------------------------------------------------------------------------------
+
+  * TWO phones (any two Android/iPhone). If you can get two of the SAME model,
+    that is better, but any two are fine.
+  * A third device or a speaker to play noise from (a Bluetooth speaker, a
+    laptop, a TV -- anything reasonably loud).
+  * A quiet room, and access to 2-3 noisy places (see section 6).
+  * Something to prop the phones up: a stack of books, tape, a tripod, a friend's
+    steady hand. The phones MUST NOT MOVE during a take.
+  * This document.
+
+
+--------------------------------------------------------------------------------
+3. THE FOUR RULES THAT MATTER MOST
+--------------------------------------------------------------------------------
+
+If you remember nothing else, remember these. Each one, if broken, makes the
+recording worthless for our purpose -- not "slightly worse", worthless.
+
+RULE 1 -- USE A PLAIN VOICE RECORDER APP. NEVER THE VIDEO CAMERA.
+    Phone video recording applies its own noise suppression and automatic volume
+    control. We measured this: switching from video capture to a plain voice
+    recorder recovered 19.2 dB of the frequencies that carry consonants. The
+    camera app quietly destroys exactly what we are trying to study.
+    Android: "Recorder" / "Voice Recorder" / "Easy Voice Recorder".
+    iPhone: "Voice Memos".
+
+RULE 2 -- BLUETOOTH OFF ON BOTH PHONES. NO EARBUDS, NO HEADSET, NO SMARTWATCH.
+    A Bluetooth headset microphone in call mode is 30 dB down by 1300 Hz. Every
+    consonant cue is simply never recorded. If a Bluetooth device is connected,
+    the phone may silently record through IT instead of its own microphone.
+    Turn Bluetooth OFF in settings -- not just "disconnect".
+
+RULE 3 -- BOTH PHONES STAY STILL AND KEEP THE SAME POSITIONS FOR A WHOLE TAKE.
+    The method works by learning the acoustic path between the two mics. Move a
+    phone mid-take and that path changes, and the take is unusable. Prop them up
+    and do not touch them until the take ends. Between takes you may move them.
+
+RULE 4 -- CLAP ONCE AT THE START AND ONCE AT THE END OF EVERY TAKE.
+    The two phones have independent clocks; they drift apart by a few
+    milliseconds per minute. Two sharp claps, one at each end, let us measure and
+    correct that drift. Without them we cannot line the two recordings up, and
+    everything downstream is meaningless.
+    ONE sharp clap. Not applause. Right in between the two phones, so both hear
+    it clearly. See the exact procedure in section 5.
+
+
+--------------------------------------------------------------------------------
+4. HOW TO PLACE THE TWO PHONES
+--------------------------------------------------------------------------------
+
+PHONE A  --  "MOUTH MIC"  (this stands in for the mic inside the helmet)
+    10-15 cm from the speaker's mouth, microphone end pointing at the mouth.
+    Slightly to the side of the mouth, not directly in front of it, so breath
+    does not thump the microphone.
+
+PHONE B  --  "NOISE MIC"  (this stands in for the mic on top of the helmet)
+    60-100 cm away from the speaker's head, raised ABOVE head height if you can
+    manage it, and with its microphone pointing AWAY from the speaker and
+    TOWARDS the noise source.
+    The idea: phone B should hear mostly noise and as little of the voice as
+    possible. It does not need to be zero voice -- just clearly less.
+
+    ASCII sketch, seen from above:
+
+        [noise source / speaker playing gunfire]
+                     |
+                     |   about 2-3 m
+                     v
+              [PHONE B]  <-- mic pointing up/away from the person
+                 ^
+                 |  60-100 cm
+                 |
+            ( person )  --10-15cm--  [PHONE A]  <-- mic pointing at mouth
+
+Write down the two distances you actually used. Approximate is fine ("about
+70 cm"), but we need to know, and it must stay the same within one take.
+
+
+--------------------------------------------------------------------------------
+5. THE EXACT PROCEDURE FOR ONE TAKE
+--------------------------------------------------------------------------------
+
+   1. Both phones in position, Bluetooth off, voice recorder app open.
+   2. Start recording on PHONE B first, then on PHONE A. (Order does not
+      matter much, but both must be running before the clap.)
+   3. Wait 3 seconds of silence.
+   4. ONE SHARP CLAP, hands held roughly between the two phones.
+   5. Wait 2 seconds.
+   6. Say out loud: the take name, e.g. "Take 3, engine noise, Priya".
+      This one spoken label saves us hours of guessing later.
+   7. Start the noise (if this take has noise). Let it run 5 seconds BEFORE
+      anyone speaks -- we need a stretch of noise with no voice in it.
+   8. Read the script in section 8, at a normal unhurried pace.
+   9. Stop speaking. Let the noise keep running for another 5 seconds.
+  10. Stop the noise.
+  11. Wait 2 seconds of silence.
+  12. ONE SHARP CLAP again.
+  13. Wait 3 seconds, then stop recording on BOTH phones.
+
+The 5 seconds of noise-with-no-voice at each end (steps 7 and 9) are not
+padding. The method needs a stretch of pure noise to lock onto, and we need it
+to measure how much noise was removed. A take without them is much less useful.
+
+
+--------------------------------------------------------------------------------
+6. WHICH TAKES WE NEED
+--------------------------------------------------------------------------------
+
+MUST HAVE -- please get all five of these. Each one is ONE take as described
+above, recorded on BOTH phones simultaneously.
+
+  TAKE 1   Quiet room, no noise at all.
+           (This is the reference. Everything is compared against it.)
+
+  TAKE 2   Recorded gunfire/battle audio from a speaker, LOUD.
+           Play any gunfire or battle clip from YouTube through a speaker placed
+           2-3 m away. Loud enough that you would struggle to hear the speaker
+           clearly -- that is the realistic case.
+           *** DO NOT use real firearms, firecrackers, or anything explosive.
+               Played-back audio is exactly what we want. ***
+
+  TAKE 3   Engine noise. A car or motorbike idling nearby, a generator, or a
+           diesel pump. Outdoors is fine.
+
+  TAKE 4   Crowd / babble. A canteen, market, or busy corridor at a busy time.
+           No speaker needed -- the crowd IS the noise.
+
+  TAKE 5   CALIBRATION TAKE, and please do not skip it even though it looks
+           pointless: put BOTH PHONES SIDE BY SIDE, touching, 10-15 cm from the
+           mouth. Clap, say "calibration", read only PART 2 of the script
+           (the alphabet), clap, stop.
+           This lets us measure how differently the two phones hear the same
+           sound, and how far their clocks drift. Without it we cannot tell a
+           real difference between the mics from a difference between the phones.
+
+NICE TO HAVE -- if you have the time and energy:
+
+  TAKE 6   Same as Take 2 (gunfire) but with the speaker much closer / louder,
+           so the noise is clearly louder than the voice.
+  TAKE 7   Wind: outdoors on a breezy day, or a fan 1 m away pointed at the mics.
+  TAKE 8   A different speaker. Two or three different voices across the session
+           is much better than one -- male and female, different accents.
+  TAKE 9   ONE take in Hindi or your own first language, any noise condition.
+           Read anything: a news paragraph, or just talk for 45 seconds.
+           This one matters more than it looks: every recording our model has
+           ever been trained or tested on is American-accented English, and our
+           actual users will not sound like that.
+
+
+--------------------------------------------------------------------------------
+7. RECORDING SETTINGS
+--------------------------------------------------------------------------------
+
+  * Format: WAV / PCM if the app offers it. If it only offers m4a or mp3, that
+    is acceptable -- do not let this stop you.
+  * Sample rate: 48000 Hz if you can choose. 44100 is fine too. Use the SAME
+    setting on both phones.
+  * Mono is fine. Stereo is fine.
+  * Turn OFF anything called: noise reduction, noise cancellation, voice
+    enhancement, automatic gain, AGC, "clear voice", "meeting mode".
+    These are usually off by default in a plain recorder app. If your app has
+    them, find them and switch them off. They change the recording in ways we
+    cannot undo.
+  * Do not wear or use earphones during recording.
+  * Aeroplane mode is a good idea (stops a call or notification ruining a take),
+    but turn Bluetooth off separately -- aeroplane mode does not always do it.
+
+
+--------------------------------------------------------------------------------
+8. THE SCRIPT TO READ  (same in every take)
+--------------------------------------------------------------------------------
+
+Speak in a normal voice. Do not shout, do not whisper. Unhurried, with a short
+pause between parts. Roughly 45 seconds in total.
+
+Read it EXACTLY as written, including the parts that feel silly. Our scoring
+tool counts specific known words, so changing them breaks the measurement.
+
+  PART 1 -- sibilants and stops
+
+    She sells sea shells by the sea shore.
+    The fifth ship shifted six sacks of steel.
+    Peter checked the thick stack of plates twice.
+    This is a test of the speech transmission system.
+
+  PART 2 -- phonetic alphabet
+
+    Alpha. Bravo. Charlie. Delta. Echo. Foxtrot.
+    Sierra. Tango. Victor. Whiskey. X-ray. Zulu.
+
+  PART 3 -- digits
+
+    One, two, three, four, five,
+    six, seven, eight, nine, zero.
+
+  PART 4 -- tactical phrases
+
+    Command, this is Bravo Two, radio check, over.
+    Position secured at grid four seven two nine.
+    Requesting immediate support at checkpoint six.
+    Say again your last, you are breaking up, over.
+    Message received and understood. Out.
+
+
+--------------------------------------------------------------------------------
+9. NAMING THE FILES
+--------------------------------------------------------------------------------
+
+After each take, rename both files immediately. It is nearly impossible to sort
+this out later from timestamps alone.
+
+    take<N>_<condition>_<speaker>_A_mouth.wav
+    take<N>_<condition>_<speaker>_B_noise.wav
+
+Examples:
+
+    take1_quiet_priya_A_mouth.wav
+    take1_quiet_priya_B_noise.wav
+    take2_gunfire_priya_A_mouth.wav
+    take2_gunfire_priya_B_noise.wav
+    take5_calibration_priya_A_mouth.wav
+    take5_calibration_priya_B_noise.wav
+
+The A/B part is the important bit: we must know which file came from the mouth
+mic and which from the noise mic. If you are unsure afterwards, say so rather
+than guessing -- a swapped pair inverts the whole thing.
+
+
+--------------------------------------------------------------------------------
+10. THE INFORMATION SHEET  (please fill this in and send it with the files)
+--------------------------------------------------------------------------------
+
+Copy the block below into a text file or the body of your message, once per
+session, and fill in the blanks. Two minutes of writing here saves us a lot of
+uncertainty.
+
+    Date:
+    Place (city / type of room):
+    Recorded by:
+
+    Phone A (mouth mic): make and model ................ app used ............
+    Phone B (noise mic): make and model ................ app used ............
+    Format / sample rate used:
+
+    Distance, mouth to phone A:            about ...... cm
+    Distance, speaker's head to phone B:    about ...... cm
+    Was phone B above head height?         yes / no
+    Distance from noise source to phone B: about ...... m
+
+    Takes recorded (tick and note the noise):
+      [ ] Take 1  quiet
+      [ ] Take 2  gunfire from speaker -- what clip / how loud:
+      [ ] Take 3  engine -- what engine:
+      [ ] Take 4  crowd -- where:
+      [ ] Take 5  CALIBRATION, both phones side by side
+      [ ] Take 6  gunfire, louder
+      [ ] Take 7  wind
+      [ ] Take 8  second speaker -- name:
+      [ ] Take 9  Hindi / other language -- which:
+
+    Speaker(s): name, male/female, first language, approximate age
+
+    Anything that went wrong, was unusual, or you are unsure about:
+    (a phone was nudged, a notification beeped, someone walked through,
+     you forgot a clap, the noise stopped early -- ALL of this is useful to
+     know and none of it means we discard the take. Just tell us.)
+
+
+--------------------------------------------------------------------------------
+11. HOW TO SEND THE FILES
+--------------------------------------------------------------------------------
+
+  * Google Drive, or any file-transfer link. Share the folder.
+  * DO NOT send the audio through WhatsApp, Telegram or Instagram as a normal
+    message or voice note. They re-compress audio aggressively and strip out
+    exactly the detail we are measuring. If you must use WhatsApp, attach the
+    files as a DOCUMENT, not as audio.
+  * Send the ORIGINAL files. Do not trim them, do not edit them, do not run any
+    "enhance audio" or "remove noise" tool, do not normalise the volume, and do
+    not convert them to another format. We need them exactly as the phone wrote
+    them, including the silences and the claps.
+  * If a take went badly, send it anyway and say what happened. A flawed take we
+    know about is more useful than a gap.
+
+
+--------------------------------------------------------------------------------
+12. FINAL CHECKLIST  (run through this before the first take)
+--------------------------------------------------------------------------------
+
+  [ ] Bluetooth OFF on both phones, no earbuds anywhere near
+  [ ] Plain voice recorder app open on both -- NOT the camera
+  [ ] Noise reduction / voice enhancement / AGC off if the app has them
+  [ ] Both phones propped up so they cannot move
+  [ ] Phone A 10-15 cm from mouth, slightly to the side
+  [ ] Phone B 60-100 cm away, pointing away from the speaker
+  [ ] Both phones have enough battery and storage for ~15 minutes of audio
+  [ ] You know where the clap goes: start AND end of every take
+  [ ] The script (section 8) is open and readable from where the speaker stands
+  [ ] You will say the take name out loud at the start of each take
+
+
+--------------------------------------------------------------------------------
+13. WHAT HAPPENS TO THESE FILES
+--------------------------------------------------------------------------------
+
+We align the two channels using your claps, measure how much of the voice leaks
+into the noise mic, and then test whether having the noise mic lets the model
+remove far more noise than it can from one microphone alone. If it does, that is
+the route to the 15 dB target the problem statement sets, and it becomes a
+headline result. If it does not, we will know that from measurement rather than
+from hoping, which is worth almost as much.
+
+One session with all five MUST-HAVE takes is already enough for us to start.
+Two sessions in different places, with different speakers, is much better.
+
+Thank you -- this is the one piece of the project that cannot be done in
+software, and nobody can do it except the people with the microphones.
+
+================================================================================
