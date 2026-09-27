@@ -13,6 +13,17 @@ results/qa_mixtures/
 results/gate/
 results/demo/
 
+# Per-clip audio written by scripts/explain_metrics.py for the live walkthrough -
+# regenerated in seconds from the frozen test set, and the numbers it prints are
+# already committed in results/per_clip_onnx.csv
+results/explain_metrics/
+
+# Local reference checkout of https://github.com/Xiaobin-Rong/SEtrain. Nothing
+# here imports it - only its published hyperparameters were borrowed, which is
+# recorded in THIRD_PARTY_NOTICES.md - and it ships a 2.7 MB DNSMOS model we do
+# not use.
+third_party/SEtrain/
+
 # Python
 __pycache__/
 *.py[cod]
