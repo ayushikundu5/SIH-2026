@@ -24,6 +24,14 @@ results/explain_metrics/
 # not use.
 third_party/SEtrain/
 
+# Parts of the vendored GTCRN checkout this project does not use: a LADSPA
+# plugin subproject (Rust) and upstream's own pre-exported ONNX models, which we
+# never load because export_onnx.py builds ours from the checkpoint. The code we
+# DO use - gtcrn.py, stream/, and test_wavs/mix.wav, which is export_onnx.py's
+# default verification input - is committed.
+third_party/gtcrn/ladspa/
+third_party/gtcrn/stream/onnx_models/
+
 # Python
 __pycache__/
 *.py[cod]
