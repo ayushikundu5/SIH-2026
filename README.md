@@ -1157,10 +1157,18 @@ src/
   models/       GTCRN, vendored verbatim (MIT)
   train.py  evaluate.py  bench.py  export_onnx.py  stream_demo.py
 scripts/        download, prepare, manifests, QA, testset, demo, handoff, report
-tests/          19 invariant tests
+tests/          59 tests, all pinning something that would fail SILENTLY
 artifacts/      what the hardware team receives
 results/        measured outputs, training logs, the 60 s demo
+ops/windows/    the unattended-training automation that produced these models
+docs/           second-machine handover, two-mic recording instructions
 ```
+
+`ops/windows/` is worth reading before setting up long runs anywhere: the
+self-healing loop, the hang watchdog and the generic export-and-score step, plus
+the four Windows-specific traps that each cost this project a run (jobs dying
+with the editor, an evaluation hanging on a PowerShell pipeline, a CUDA hang no
+retry loop can fix, and `pgrep` matching its own command line).
 
 `manifests/` and the datasets are generated, not committed — see
 [Reproducing everything](#reproducing-everything).

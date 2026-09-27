@@ -6,13 +6,29 @@ setup, and where to hear every audio file.
 
 ---
 
-## In one screen — state at 24 Sep 2026, 19:00 IST
+## In one screen — state at 28 Sep 2026
 
-**NOTHING IS RUNNING. The machine is deliberately at rest tonight** — it trained
-for two days straight (23 Sep 13:07 → 24 Sep 18:29, two full runs back to back).
-Verified stopped: no training, no watchdogs, no notifiers, no keep-awake holding
-the machine up, WSL shut down, GPU at 0% / 0 MiB / 43 °C, sleep back to its
-normal 15 minutes on AC. It is safe to shut the laptop down.
+**NOTHING HAS RUN SINCE 24 Sep 18:29.** The machine was deliberately rested
+after training for two days straight (23 Sep 13:07 → 24 Sep 18:29, two full runs
+back to back), and nothing has been started since: newest checkpoint is
+`short24_best.pt` at 24 Sep 18:28, newest artifact `model_short24_simple.onnx` at
+18:30, no `train_short32.log`, no `wide48` checkpoint received.
+
+So the state below is current, and both outstanding items are waiting on people
+rather than on compute:
+
+- **`short32` is prepared but not started** — one command, see below. This is the
+  run that splits "shorter window" from "smaller model" in what `short24` cost.
+- **Phase 2 (`wide48`) is with the second machine**, per `docs/SECOND_MACHINE.md`.
+  When the checkpoint arrives: `finish_any.ps1 -Tag wide48`, no new code needed.
+- **Phase 3 recordings are with the teammates** who have the microphones, per
+  `docs/PHASE3_TWO_MIC_RECORDINGS.txt` — 5 takes minimum, 9 if they have time.
+  They are for CALIBRATING the simulated reference channel and for an honest
+  two-mic test set, not for training: five takes is ~4 minutes of speech against
+  ~22 hours per training epoch.
+- **Still not done, and still the top open item:** the ASR word-score test on any
+  width-32 model. Four model steps have now raised PESQ and nothing has checked
+  whether the words survive.
 
 ### Tomorrow: one command starts the next run
 
